@@ -34,7 +34,6 @@ class PineconeService {
           chunkSize: 1000,
           chunkOverlap: 200,
         });
-        // const workingText = fs.readFileSync("dummy.txt", "utf8");
         const ragDoc = new RagDocs({
           docName: originalDocName,
           fullText: formattedText,
