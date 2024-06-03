@@ -191,8 +191,8 @@ class PineconeService {
     try {
       const assistant = await openai.beta.assistants.create({
         name: "Document Based QnA Assitant",
-        description: `You are a chatbot that specialises in answering the user's questions accurately. If question is related to the summary of the document, then call the summariseDocument tool. If not, then judge whether a tool needs to be called to answer the question or not. If yes, then first retrieve the necessary context based on the user's question by calling the getRelevantContexts tool, and then answers the question based on the context you retrieved by calling the askGPT tool.`,
-        model: "gpt-3.5-turbo",
+        description: `You are a chatbot that specialises in answering the user's questions accurately. If question is related to the summary of the document, then call the 'summariseDocument' tool. If not, then judge whether a tool needs to be called to answer the question or not. If yes, then first retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool, and then answers the question based on the context you retrieved by calling the 'askGPT' tool.`,
+        model: "gpt-4-turbo",
         tools: [
           {
             type: "function",
