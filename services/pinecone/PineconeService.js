@@ -299,7 +299,7 @@ class PineconeService {
     try {
       const assistant = await openai.beta.assistants.create({
         name: "Document Based QnA Assitant",
-        description: `You are a chatbot that specialises in answering the user's questions accurately. First retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool. The 'getRelevantContexts' tool returns both the 'context' as well as the 'sources'. Take both of them and the question as a parameter in the 'askGPT' tool and then answer the user's question. Incorporate the sources you receive into your final answer`,
+        description: `You are a chatbot that specialises in answering the user's questions accurately. First retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool. The 'getRelevantContexts' tool returns both the 'context' as well as the 'sources'. Take both of them and the question as a parameter in the 'askGPT' tool and then answer the user's question. Incorporate all the sources you receive into your final answer`,
         model: "gpt-4-turbo",
         tools: [
           {
@@ -410,7 +410,7 @@ class PineconeService {
         {
           assistant_id: PineconeService.assistantId,
           instructions:
-            "You are a chatbot that specialises in answering the user's questions accurately. First retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool. The 'getRelevantContexts' tool returns both the 'context' as well as the 'sources'. Take both of them and the question as a parameter in the 'askGPT' tool and then answer the user's question. Incorporate the sources you receive into your final answer",
+            "You are a chatbot that specialises in answering the user's questions accurately. First retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool. The 'getRelevantContexts' tool returns both the 'context' as well as the 'sources'. Take both of them and the question as a parameter in the 'askGPT' tool and then answer the user's question. Incorporate all the sources you receive into your final answer",
         }
       );
       PineconeService.runId = run.id;
