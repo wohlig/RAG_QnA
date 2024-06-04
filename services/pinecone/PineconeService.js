@@ -299,7 +299,7 @@ class PineconeService {
     try {
       const assistant = await openai.beta.assistants.create({
         name: "Document Based QnA Assitant",
-        description: `You are a chatbot that specialises in answering the user's questions accurately. First retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool. The 'getRelevantContexts' tool returns both the 'context' as well as the 'sources'. Take both of them and the question as a parameter in the 'askGPT' tool and then answer the user's question. Incorporate all the sources you receive into your final answer`,
+        description: `You are a chatbot that specialises in answering the user's questions accurately. First retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool. This tool returns both the 'context' and the 'sources'. Take both and the question as parameters in the 'askGPT' tool and then answer the user's question. Incorporate all the sources you receive into your final answer. Give response in JSON: {'answer': final answer you received, 'sources': ['source 1', ...more sources]}`,
         model: "gpt-4-turbo",
         tools: [
           {
@@ -371,6 +371,9 @@ class PineconeService {
         //     },
         //   },
         ],
+        response_format: {
+            type: "json_object",
+        }
       });
       PineconeService.assistantId = assistant.id;
       console.log(PineconeService.assistantId);
@@ -410,7 +413,7 @@ class PineconeService {
         {
           assistant_id: PineconeService.assistantId,
           instructions:
-            "You are a chatbot that specialises in answering the user's questions accurately. First retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool. The 'getRelevantContexts' tool returns both the 'context' as well as the 'sources'. Take both of them and the question as a parameter in the 'askGPT' tool and then answer the user's question. Incorporate all the sources you receive into your final answer",
+            "You are a chatbot that specialises in answering the user's questions accurately. First retrieve the necessary context based on the user's question by calling the 'getRelevantContexts' tool. This tool returns both the 'context' and the 'sources'. Take both and the question as parameters in the 'askGPT' tool and then answer the user's question. Incorporate all the sources you receive into your final answer. Give response in JSON: {'answer': final answer you received, 'sources': ['source 1', ...more sources]}",
         }
       );
       PineconeService.runId = run.id;
