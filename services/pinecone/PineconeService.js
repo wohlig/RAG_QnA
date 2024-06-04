@@ -523,7 +523,7 @@ class PineconeService {
     if (PineconeService.runId != "") {
       const status = await this.waitForRunCompletion();
       if (status == "completed") {
-        PineconeService.runId == "";
+        PineconeService.runId = "";
         return await this.retrieveResponse();
       }
       return "Run Not Yet Complete";
