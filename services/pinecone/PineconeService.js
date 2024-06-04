@@ -198,6 +198,7 @@ class PineconeService {
       .join("");
     const uniqueSources = [... new Set(allSources)];
     const finalSources = uniqueSources.join(", ")
+    console.log("Final Sources", finalSources)
       const finalObj = {
         contexts: finalContext,
         sources: finalSources
