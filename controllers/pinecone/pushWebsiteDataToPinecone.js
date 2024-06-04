@@ -34,12 +34,12 @@ const validationSchema = {
 const validation = (req, res, next) => {
   return validationOfAPI(req, res, next, validationSchema, 'body')
 }
-const askQna = async (req, res) => {
+const pushWebsiteDataToPinecone = async (req, res) => {
   try {
-    const result = await PineconeService.askQna(req.body.question)
+    const result = await PineconeService.pushWebsiteDataToPinecone(req.body.urls)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
-    console.log('askQna Error', err)
+    console.log('pushWebsiteDataToPinecone Error', err)
     return res.sendJson({
       type: err.type || __constants.RESPONSE_MESSAGES.SERVER_ERROR,
       err: err.err || err
@@ -47,5 +47,5 @@ const askQna = async (req, res) => {
   }
 }
 
-router.post('/askQna', validation, askQna)
+router.post('/pushWebsiteDataToPinecone', validation, pushWebsiteDataToPinecone)
 module.exports = router
