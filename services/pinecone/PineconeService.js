@@ -225,7 +225,7 @@ class PineconeService {
             Question: ${question}`,
         },
       ],
-      temperature: 0,
+      temperature: 0.4,
       response_format: {
         type: "json_object",
       }
