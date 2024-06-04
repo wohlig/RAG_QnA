@@ -1,0 +1,45 @@
+on:
+  push:
+    branches:
+    - 'master'
+
+permissions:
+    id-token: write
+    contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: code checkout
+      uses: actions/checkout@v2
+          
+    - name: install the gcloud cli
+      uses: google-github-actions/setup-gcloud@v0.4.0
+      with:
+        project_id: confixa-rnd
+        service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+        export_default_credentials: true
+        
+    - name: build and push the docker image
+      env:
+        GOOGLE_PROJECT: confixa-rnd
+      run: |
+        gcloud auth configure-docker asia-south1-docker.pkg.dev
+        docker build -t asia-south1-docker.pkg.dev/confixa-rnd/confixa-docker-images/dev-website-chatbot:${{ github.sha }} .
+    
+    - name: Push Docker Image to Artifact Registry
+      run: |
+        docker push asia-south1-docker.pkg.dev/confixa-rnd/confixa-docker-images/dev-website-chatbot:${{ github.sha }}
+        git clone https://Vaishnavi20011225:${{ secrets.TOKEN103 }}@github.com/confixa/confixa-gitops
+        cd confixa-gitops
+        
+        git checkout confixa-gitops
+        git config user.name "aniket-pharale"
+        git config user.email "aniket.pharale@wohlig.com"
+        yq e '.spec.template.spec.containers[0].image = "asia-south1-docker.pkg.dev/confixa-rnd/confixa-docker-images/dev-website-chatbot:${{ github.sha }}"' -i deployment.apps/deploy-website-chatbot.yaml
+        git add .
+        git commit -m "updating newer image"  
+        git push --set-upstream origin confixa-gitops
+        
