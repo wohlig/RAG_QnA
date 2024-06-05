@@ -433,6 +433,12 @@ class PineconeService {
           PineconeService.runId
         );
         console.log(runStatus.status);
+        if(runStatus.status == "failed") {
+          return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
+        }
+        if(runStatus.status == "expired") {
+          return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
+        }
         if (runStatus.status == "requires_action") {
           const requiredActions =
             runStatus.required_action.submit_tool_outputs.tool_calls;
