@@ -37,9 +37,8 @@ const validation = (req, res, next) => {
 const askQna = async (req, res) => {
   try {
     const result = await PineconeService.askQna(req.body.question)
-    const ansObject = JSON.parse(result)
-    ansObject.question = req.body.question
-    res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: ansObject })
+    result.question = req.body.question
+    res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
     console.log('askQna Error', err)
     return res.sendJson({

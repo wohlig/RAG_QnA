@@ -462,23 +462,18 @@ class PineconeService {
     };
     return finalObj;
   }
-  async askGPT(question, context, sources) {
-    console.log("This is Sources", sources);
+  async askGPT(question, context) {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content: `You are a helpful assistant that answers the given question accurately based on the context provided to you. Do not hallucinate or answer the question by yourself. If you could not find the answer from the given context, reply with 'The provided context does not contain the answer to your question'. Give final answer in following JSON format:
-            {
-                answer: final answer of the question based on the context provided to you,
-                sources: all the sources you received from ${sources}
-            }`,
+          content: `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. If you cannot find the answer from the given context, reply with 'The provided context does not contain the answer to your question'. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`,
         },
         {
           role: "user",
           content: `Context: ${context}
-            Question: ${question}`,
+            Question: ${question} and if possible explain the answer in detail`,
         },
       ],
       temperature: 0.4,
@@ -795,17 +790,18 @@ class PineconeService {
     // }
     try {
       const context = await this.getRelevantContexts(question);
-      const response = await this.askGPT(
-        question,
-        context.contexts,
-        context.sources
-      );
+      let response = await this.askGPT(question, context.contexts);
+      response = JSON.parse(response);
+      let sourcesArray = [];
+      if (context.sources != "") {
+        sourcesArray = context.sources.split(", ");
+        response.sources = sourcesArray;
+      }
       return response;
     } catch (error) {
       console.log(error);
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
     }
-
   }
   async sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
