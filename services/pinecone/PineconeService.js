@@ -468,7 +468,7 @@ class PineconeService {
       messages: [
         {
           role: "system",
-          content: `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. If you cannot find the answer from the given context, reply with 'The provided context does not contain the answer to your question'. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`,
+          content: `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`,
         },
         {
           role: "user",
