@@ -1,4 +1,6 @@
 const pdf_parse = require("pdf-parse");
+const { CSVLoader } = require("@langchain/community/document_loaders/fs/csv");
+const xlsx = require('node-xlsx').default;
 const __constants = require("../../config/constants");
 const OpenAI = require("openai");
 const openai = new OpenAI({
@@ -356,9 +358,9 @@ class PineconeService {
         0.53, 0.04, 0.03,
       ],
       filter: {
-        source: { $exists: false },
+        docIdInDb: { $eq: '6669a0c130bee8580851afb6' },
       },
-      topK: 400,
+      topK: 800,
       includeValues: false,
       includeMetadata: true,
     });
@@ -367,12 +369,19 @@ class PineconeService {
     return "Doneeeee";
   }
   async pushDocumentsToPinecone(files) {
+    // await this.deleteVectorsFromPinecone()
+    // return "Doneeee"
     const fileData = files;
     // await index.deleteAll();
     let count = 1;
     for (const file of fileData) {
       const pdfData = await pdf_parse(file.buffer);
-      const formattedText = await this.formatTextOpenAI(pdfData.text);
+      let formattedText
+      try {
+        formattedText = await this.formatTextOpenAI(pdfData.text);
+      } catch (error) {
+        formattedText = pdfData.text;
+      }
       const originalDocName = file.originalname;
       const splitter = new RecursiveCharacterTextSplitter({
         chunkSize: 1000,
@@ -420,8 +429,14 @@ class PineconeService {
         await index.upsert(to_upsert);
         console.log("Successfully uploaded", i / 100);
       }
-      ragDoc.docChunks = docs;
-      await ragDoc.save();
+      console.log("Saving in DB", originalDocName)
+      try {
+        ragDoc.docChunks = docs;
+        await ragDoc.save();
+        
+      } catch (error) {
+        console.log(error)
+      }
       console.log("File Doneee", count);
       count++;
     }
