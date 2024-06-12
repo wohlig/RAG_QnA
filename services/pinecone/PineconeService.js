@@ -462,13 +462,18 @@ class PineconeService {
     };
     return finalObj;
   }
-  async askGPT(question, context) {
+  async askGPT(question, context, promptBody) {
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`
+    if(promptBody) {
+      prompt = promptBody
+      prompt+='JSON'
+    }
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content: `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`,
+          content: prompt,
         },
         {
           role: "user",
@@ -756,7 +761,7 @@ class PineconeService {
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
     }
   }
-  async askQna(question) {
+  async askQna(question, prompt) {
     // const finalQuestion = `
     // Question: ${question}
     // DocumentID: ${docId}`;
@@ -790,7 +795,7 @@ class PineconeService {
     // }
     try {
       const context = await this.getRelevantContexts(question);
-      let response = await this.askGPT(question, context.contexts);
+      let response = await this.askGPT(question, context.contexts, prompt);
       response = JSON.parse(response);
       let sourcesArray = [];
       if (context.sources != "") {
