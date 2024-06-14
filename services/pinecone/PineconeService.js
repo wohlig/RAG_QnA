@@ -1,6 +1,5 @@
 const pdf_parse = require("pdf-parse");
 const { CSVLoader } = require("@langchain/community/document_loaders/fs/csv");
-const xlsx = require('node-xlsx').default;
 const __constants = require("../../config/constants");
 const OpenAI = require("openai");
 const openai = new OpenAI({
