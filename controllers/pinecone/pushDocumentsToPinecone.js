@@ -36,7 +36,7 @@ const validation = (req, res, next) => {
 }
 const pushDocumentsToPinecone = async (req, res) => {
   try {
-    const result = await PineconeService.pushDocumentsToPinecone(req.files)
+    const result = await PineconeService.pushDocumentsToBigQuery(req.files)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
     console.log('pushDocumentsToPinecone Error', err)
