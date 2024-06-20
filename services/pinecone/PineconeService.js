@@ -1,101 +1,100 @@
-const pdf_parse = require("pdf-parse");
-const { CSVLoader } = require("@langchain/community/document_loaders/fs/csv");
-const __constants = require("../../config/constants");
-const OpenAI = require("openai");
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-const langchainOpenAI = require("@langchain/openai");
-const { loadSummarizationChain } = require("langchain/chains");
-const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
-const fs = require("fs");
-const { uuid } = require("uuidv4");
-const { Pinecone } = require("@pinecone-database/pinecone");
+const fs =require('fs')
+const keys = process.env.GOOGLE_SECRETS;
+fs.writeFileSync(`${__dirname}/keys.json`, keys);
 
-const pinecone = new Pinecone({
-  apiKey: process.env.PINECONE_API_KEY,
-});
-const index = pinecone.index("ondc-rag");
-const RagDocs = require("../../mongooseSchema/RagDocs");
 const { compile } = require("html-to-text");
-const {
-  RecursiveUrlLoader,
-} = require("@langchain/community/document_loaders/web/recursive_url");
+const { v4: uuidv4 } = require("uuid");
+const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
+const { BigQuery } = require("@google-cloud/bigquery");
+const { RecursiveUrlLoader } = require("@langchain/community/document_loaders/web/recursive_url");
+const RagDocs = require("../../mongooseSchema/RagDocs");
+const path = require("path")
+// const auth = require('your-auth-module'); // Replace with your actual auth module for getting access tokens
+const getEmbedding = require("../pinecone/getEmbedding"); // Adjust the path as necessary
+
+const bigquery = new BigQuery({
+    keyFilename: path.join(__dirname, "./keys.json"), // Ensure this path points to your service account key
+});
 
 class PineconeService {
-  static assistantId = "";
-  static threadId = "";
-  static runId = "";
+    static assistantId = "";
+    static threadId = "";
+    static runId = "";
 
-  async pushWebsiteDataToPinecone(urls) {
-    for (const url of urls) {
-      try {
-        const compiledConvert = compile({ wordwrap: 130 }); // returns (text: string) => string;
+    async pushWebsiteDataToBigQuery(urls) {
+        for (const url of urls) {
+            try {
+              console.log("inside tryy");
+                const compiledConvert = compile({ wordwrap: 130 }); // returns (text: string) => string;
+                const loader = new RecursiveUrlLoader(url, {
+                    extractor: compiledConvert,
+                    maxDepth: 1,
+                });
 
-        const loader = new RecursiveUrlLoader(url, {
-          extractor: compiledConvert,
-          maxDepth: 1,
-        });
+                const websiteData = await loader.load();
+                const splitter = new RecursiveCharacterTextSplitter({
+                    chunkSize: 1000,
+                    chunkOverlap: 200,
+                });
 
-        const websiteData = await loader.load();
-        const splitter = new RecursiveCharacterTextSplitter({
-          chunkSize: 1000,
-          chunkOverlap: 200,
-        });
-        const ragDoc = new RagDocs({
-          docName: url,
-          fullText: websiteData[0].pageContent,
-        });
-        await ragDoc.save();
-        const docs = await splitter.splitDocuments([websiteData[0]]);
-        docs.forEach((doc) => {
-          doc.id = uuid();
-        });
-        //   return docs
-        const batch_size = 100;
-        let embeddings = [];
-        for (let i = 0; i < docs.length; i += batch_size) {
-          const i_end = Math.min(docs.length, i + batch_size);
-          const meta_batch = docs.slice(i, i_end);
-          const ids_batch = meta_batch.map((x) => x.id);
-          const texts_batch = meta_batch.map((x) => x.pageContent);
-          let response;
-          try {
-            response = await openai.embeddings.create({
-              model: "text-embedding-3-large",
-              input: texts_batch,
-            });
-          } catch (error) {
-            console.log(error);
-          }
-          embeddings = response.data.map((record) => record.embedding);
-          for (let j = 0; j < embeddings.length; j++) {
-            docs[j + i].embeddings = embeddings[j];
-          }
-          const meta_batch_cleaned = meta_batch.map((x) => ({
-            context: x.pageContent,
-            docIdInDb: ragDoc._id,
-            source: x.metadata.source,
-            title: x.metadata.title,
-          }));
-          const to_upsert = ids_batch.map((id, i) => ({
-            id: id,
-            values: embeddings[i],
-            metadata: meta_batch_cleaned[i],
-          }));
-          await index.upsert(to_upsert);
-          console.log("Successfully uploaded", i / 100);
+                const ragDoc = new RagDocs({
+                    docName: url,
+                    fullText: websiteData[0].pageContent,
+                });
+                await ragDoc.save();
+                const docs = await splitter.splitDocuments([websiteData[0]]);
+                docs.forEach((doc) => {
+                    doc.id = uuidv4();
+                });
+console.log("docs>>>",docs.length);
+                const batch_size = 100;
+                for (let i = 0; i < docs.length; i += batch_size) {
+                    const i_end = Math.min(docs.length, i + batch_size);
+                    const meta_batch = docs.slice(i, i_end);
+                    const ids_batch = meta_batch.map((x) => x.id);
+                    const texts_batch = meta_batch.map((x) => x.pageContent);
+
+                    let embeddings = [];
+                    for (const text of texts_batch) {
+                        try {
+                            const embedding = await getEmbedding.getEmbedding(text);
+                            embeddings.push(embedding);
+                        } catch (error) {
+                            console.error("Failed to get embedding for text:", text);
+                            embeddings.push([]); // handle the error, e.g., push empty array or continue
+                        }
+                    }
+console.log("embeddings>>>>>",embeddings);
+                    const rows = meta_batch.map((doc, index) => ({
+                        id: doc.id,
+                        docIdInDb: ragDoc._id.toString(),
+                        source: doc.metadata.source || url,
+                        title: doc.metadata.title || 'N/A',
+                        context: doc.pageContent,
+                        embedding: embeddings[index],
+
+                    }));
+                    console.log("outside lopp>>>>>>>>>",rows);
+                    
+                    try {
+                      await bigquery.dataset('RGA_Embeddings').table('_embeddings').insert(rows);
+                    } catch (error) {
+                      console.log(error.errors[0].errors);
+                    }
+                    
+                    console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
+                }
+
+                ragDoc.docChunks = docs;
+                await ragDoc.save();
+                console.log("URL Processed:", url);
+            } catch (error) {
+                console.log(error.message);
+            }
         }
-        ragDoc.docChunks = docs;
-        await ragDoc.save();
-        console.log("URL Done", url);
-      } catch (error) {
-        console.log(error.message);
-      }
+        return "Completed";
     }
-    // await index.deleteAll();
-    return "Doneeeeeeee";
-  }
+
   async deleteVectorsFromPinecone() {
     const records = await index.query({
       vector: [

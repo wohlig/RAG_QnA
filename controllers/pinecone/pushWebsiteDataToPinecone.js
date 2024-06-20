@@ -5,7 +5,7 @@ const validationOfAPI = require('../../middlewares/validation')
 // const cache = require('../../../middlewares/requestCacheMiddleware')
 const PineconeService = require('../../services/pinecone/PineconeService')
 const multer = require('multer')
-  const upload = multer()
+const upload = multer()
 
 /**
  * @namespace -GNEWS-MODULE-
@@ -36,7 +36,7 @@ const validation = (req, res, next) => {
 }
 const pushWebsiteDataToPinecone = async (req, res) => {
   try {
-    const result = await PineconeService.pushWebsiteDataToPinecone(req.body.urls)
+    const result = await PineconeService.pushWebsiteDataToBigQuery(req.body.urls)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
     console.log('pushWebsiteDataToPinecone Error', err)

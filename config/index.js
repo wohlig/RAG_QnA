@@ -48,6 +48,13 @@ module.exports = {
     secretId: process.env.VAULT_SECRET_ID,
     vaultPath: process.env.VAULT_PATH
   },
+  bigQuery: {
+    projectId: process.env.BIG_QUERY_PROJECT_ID,
+    keyFilename: process.env.BIG_QUERY_KEY_FILENAME,
+    dataSetId: process.env.BIG_QUERY_DATA_SET_ID,
+    SBDataSetId: process.env.BIG_QUERY_SB_DATA_SET_ID,
+    bucketUrl: process.env.AWS_BUCKET_URL
+  },
   addBaseUrlPrefix: process.env.ADD_BASEURL_PREFIX === 'true',
   debugMode: process.env.DEBUG_MODE === 'true',
   userBasedCache: process.env.USER_BASED_CACHE === 'true'
