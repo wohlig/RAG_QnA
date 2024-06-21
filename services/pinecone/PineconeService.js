@@ -1,7 +1,7 @@
 const fs = require("fs");
 const keys = process.env.GOOGLE_SECRETS;
 fs.writeFileSync(`${__dirname}/keys.json`, keys);
-
+const __constants = require('../../config/constants')
 const { compile } = require("html-to-text");
 const { v4: uuidv4 } = require("uuid");
 const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
@@ -297,13 +297,21 @@ class PineconeService {
   }
   async getRelevantContextsBigQuery(question) {
     const questionEmbedding = await getEmbedding.getEmbedding(question);
-    console.log("🚀 ~ PineconeService ~ getRelevantContextsBigQuery ~ questionEmbedding:", questionEmbedding);
-  
+    console.log("questionEmbedding:", questionEmbedding);
     // Create the embedding structure for the query
     const formattedEmbedding = questionEmbedding.map(value => value.toString()).join(", ");
-  
-    const query = `SELECT base.context AS context, base.source AS source, distance FROM VECTOR_SEARCH( TABLE ondc_dataset.ondc_table, embedding, (SELECT ${questionEmbedding} AS embedding ), top_k => 5, distance_type => 'COSINE')`;
-  
+    const embeddingString = `[${questionEmbedding.join(', ')}]`;
+    console.log("embeddingString", embeddingString)
+    const query = `SELECT distinct base.context AS context,
+                  base.source AS source
+                  FROM
+                  VECTOR_SEARCH(
+                    TABLE ondc_dataset.ondc_table,
+                    'embedding',
+                      (SELECT ${embeddingString} as embedding FROM ondc_dataset.ondc_table),
+                    top_k => 5,
+                    distance_type => 'COSINE');`
+    console.log("query>>>", query)
     try {
       const [rows] = await bigquery.query({ query });
       console.log("Rows>>>>", rows);
@@ -431,13 +439,17 @@ class PineconeService {
     //   return "Run Not Yet Complete";
     // }
     try {
-      const context = await this.getRelevantContexts(question);
+      console.log("getRelevantContexts")
+      // const context = await this.getRelevantContexts(question);
+      const context = await this.getRelevantContextsBigQuery(question);
+      console.log("context...", context)
+      console.log("askGemini")
       let response = await this.askGemini(question, context.contexts, prompt);
       console.log("Response>>>>", response);
       // remove '```json and ```' from the response
       response = response.replace(/```json/g, "");
       response = response.replace(/```/g, "");
-
+      console.log("response...", response)
       response = JSON.parse(response);
       // response = JSON.parse(response);
       let sourcesArray = [];
