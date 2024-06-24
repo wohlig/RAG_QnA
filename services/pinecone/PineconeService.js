@@ -2625,7 +2625,7 @@ class PineconeService {
   async getEmbeddingsBatch(texts) {
     return Promise.all(
       texts.map((text) =>
-        this.callPredict(text.replace(/;/g, "RETRIEVAL_DOCUMENT"))
+        this.callPredict(text.replace(/;/g, ""), "RETRIEVAL_DOCUMENT")
       )
     );
   }
@@ -2675,7 +2675,7 @@ class PineconeService {
                     TABLE ondc_dataset.ondc_table,
                     'embedding',
                       (SELECT ${embeddingString} as embedding FROM ondc_dataset.ondc_table),
-                    top_k => 5,
+                    top_k => 3,
                     distance_type => 'COSINE'
                     );`;
     console.log("query>>>", query);
@@ -2752,7 +2752,7 @@ class PineconeService {
   async askQna(question, prompt) {
     try {
       console.log("getRelevantContexts");
-      const context = await this.getRelevantContexts(question);
+      const context = await this.getRelevantContextsBigQuery(question);
       // const context = await this.getRelevantContextsBigQuery(question);
       console.log("context...", context);
       console.log("askGemini");
