@@ -2,6 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const keys = process.env.GOOGLE_SECRETS;
 fs.writeFileSync(path.join(__dirname, "keys.json"), keys);
+const keys2 = process.env.GOOGLE_VERTEX_SECRETS;
+fs.writeFileSync("./vertexkeys.json", keys2);
 
 const __constants = require("../../config/constants");
 const { compile } = require("html-to-text");
