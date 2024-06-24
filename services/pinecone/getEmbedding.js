@@ -29,7 +29,7 @@ class EmbeddingService {
       // console.log('response.data.predictions[0]', response.data.predictions[0])
       console.log("inside emmmmmm");
       console.log("Generating embedding for text.");
-      const model = new GoogleVertexAIEmbeddings();
+      const model = new GoogleVertexAIEmbeddings({model:"text-embedding-004"});
       const res = await model.embedQuery(data);
       console.log("Embedding generated.");
       return res;
@@ -42,3 +42,6 @@ class EmbeddingService {
 }
 
 module.exports = new EmbeddingService();
+
+
+// SELECT base.context AS context, base.source AS source, distance FROM VECTOR_SEARCH( TABLE ondc_dataset.ondc_table -0.04314486309885979, 0.017212538048624992, -0.0451410636305809, -0.012280287221074104, 0.015345476567745209, -0.017647482454776764, 0.06416217982769012, 0.007995406165719032, -0.00071216921787709, 0.02614305168390274,-0.032133616507053375, -0.006791949272155762, -0.008644689805805683 AS embedding , top_k => 5, distance_type => 'COSINE')

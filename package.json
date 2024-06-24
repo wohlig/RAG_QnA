@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@elastic/elasticsearch": "^8.5.0",
+    "@google-cloud/aiplatform": "^3.23.0",
     "@google-cloud/bigquery": "^7.7.1",
     "@langchain/community": "^0.2.12",
     "@langchain/google-genai": "^0.0.20",
