@@ -1,6 +1,9 @@
 const pdf_parse = require("pdf-parse");
 const { CSVLoader } = require("@langchain/community/document_loaders/fs/csv");
 const __constants = require("../../config/constants");
+const Chat = require("../../mongooseSchema/ONDC_Chat")
+const { MongoClient, ObjectId } = require("mongodb");
+const { MongoDBChatMessageHistory } = require("@langchain/mongodb");
 const OpenAI = require("openai");
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -21,11 +24,70 @@ const { compile } = require("html-to-text");
 const {
   RecursiveUrlLoader,
 } = require("@langchain/community/document_loaders/web/recursive_url");
+const { ChatVertexAI } = require("@langchain/google-vertexai");
+const { DynamicTool, DynamicStructuredTool } = require("@langchain/core/tools");
+const {
+  ChatPromptTemplate,
+  MessagesPlaceholder,
+} = require("@langchain/core/prompts");
+const {
+  convertToOpenAIFunction,
+} = require("@langchain/core/utils/function_calling");
+const { RunnableSequence } = require("@langchain/core/runnables");
+const { AgentExecutor, createToolCallingAgent } = require("langchain/agents");
+const {
+  AIMessage,
+  BaseMessage,
+  HumanMessage,
+} = require("@langchain/core/messages");
+const {
+  formatToOpenAIFunctionMessages,
+} = require("langchain/agents/format_scratchpad");
+const {
+  OpenAIFunctionsAgentOutputParser,
+} = require("langchain/agents/openai/output_parser");
+const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
+const { zodToGeminiParameters } = require("@langchain/google-vertexai/utils");
+const { z } = require("zod");
+const {
+  FunctionDeclarationSchemaType,
+  HarmBlockThreshold,
+  HarmCategory,
+  VertexAI,
+} = require("@google-cloud/vertexai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const { ChatAnthropic } = require("@langchain/anthropic");
+const { StringOutputParser } = require("@langchain/core/output_parsers");
+const { ConversationChain } = require("langchain/chains");
+const { BufferMemory } = require("langchain/memory");
+
+let collection
+(async () => {
+  let hasRun = false;
+  if (!hasRun) {
+    const client = new MongoClient(process.env.MONGO_URL || "", {
+      driverInfo: { name: "langchainjs" },
+    });
+    try {
+      await client.connect();
+      collection = client.db("uat-newsshield").collection("ondc_chats");
+      hasRun = true;
+    } catch (error) {
+      console.error("Error connecting to MongoDB:", error);
+    }
+  }
+})()
 
 class PineconeService {
   static assistantId = "";
   static threadId = "";
   static runId = "";
+  static chatHistory = [];
+  static actualAgent = "";
+  static finalSources = "";
+  static llmChain = ""
+  static llmMemory = ""
 
   async pushWebsiteDataToPinecone(urls) {
     for (const url of urls) {
@@ -357,7 +419,7 @@ class PineconeService {
         0.53, 0.04, 0.03,
       ],
       filter: {
-        docIdInDb: { $eq: '6669a0c130bee8580851afb6' },
+        docIdInDb: { $eq: "6669a0c130bee8580851afb6" },
       },
       topK: 800,
       includeValues: false,
@@ -375,7 +437,7 @@ class PineconeService {
     let count = 1;
     for (const file of fileData) {
       const pdfData = await pdf_parse(file.buffer);
-      let formattedText
+      let formattedText;
       try {
         formattedText = await this.formatTextOpenAI(pdfData.text);
       } catch (error) {
@@ -428,13 +490,12 @@ class PineconeService {
         await index.upsert(to_upsert);
         console.log("Successfully uploaded", i / 100);
       }
-      console.log("Saving in DB", originalDocName)
+      console.log("Saving in DB", originalDocName);
       try {
         ragDoc.docChunks = docs;
         await ragDoc.save();
-        
       } catch (error) {
-        console.log(error)
+        console.log(error);
       }
       console.log("File Doneee", count);
       count++;
@@ -469,7 +530,7 @@ class PineconeService {
       .join("");
     const uniqueSources = [...new Set(allSources)];
     const finalSources = uniqueSources.join(", ");
-    console.log("Final Sources", finalSources);
+    // console.log("Final Sources", finalSources);
     const finalObj = {
       contexts: finalContext,
       sources: finalSources,
@@ -477,10 +538,11 @@ class PineconeService {
     return finalObj;
   }
   async askGPT(question, context, promptBody) {
-    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`
-    if(promptBody) {
-      prompt = promptBody
-      prompt+=' Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}'
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`;
+    if (promptBody) {
+      prompt = promptBody;
+      prompt +=
+        ' Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n}';
     }
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -775,6 +837,272 @@ class PineconeService {
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
     }
   }
+  async askOpenAI(question, context, promptBody) {
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`;
+    if (promptBody) {
+      prompt = promptBody;
+      prompt +=
+        ' Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n}';
+    }
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: prompt,
+        },
+        {
+          role: "user",
+          content: `Context: ${context}
+            Question: ${question} and if possible explain the answer in detail`,
+        },
+      ],
+      temperature: 0.4,
+      response_format: {
+        type: "json_object",
+      },
+    });
+    return response.choices[0].message.content;
+  }
+  async createTools() {
+    const relevantContextsTool = new DynamicTool({
+      name: "getRelevantContexts",
+      description:
+        "Returns an object contaning the relevant context information and its source links based on the provided question",
+      func: async (question) => {
+        console.log("Heyyyyyy", question);
+        const response = await openai.embeddings.create({
+          model: "text-embedding-3-large",
+          input: question,
+        });
+        const questionEmbedding = response.data[0].embedding;
+        const queryResponse = await index.query({
+          vector: questionEmbedding,
+          //   filter: {
+          //     docIdInDb: { $eq: docId.toString() },
+          //   },
+          topK: 5,
+          includeMetadata: true,
+        });
+        const contexts = queryResponse.matches.map(
+          (match) => match.metadata.context
+        );
+        const allSources = queryResponse.matches.map(
+          (match) => match.metadata.source
+        );
+        // console.log("Contextsssss", queryResponse.matches)
+        const finalContext = contexts
+          .filter(function (str) {
+            return str !== undefined;
+          })
+          .join("");
+        const uniqueSources = [...new Set(allSources)];
+        const finalSources = uniqueSources.join(", ");
+        console.log("Final Sources", finalSources);
+        PineconeService.finalSources = finalSources;
+        const finalObj = {
+          contexts: finalContext,
+          sources: finalSources,
+        };
+        // console.log(finalObj);
+        return finalContext;
+      },
+    });
+
+    const askGeminiTool = new DynamicStructuredTool({
+      name: "askGemini",
+      description:
+        "Returns the final answer to the question asked based on the context given",
+      schema: z.object({
+        question: z.string().describe("The question asked by the user"),
+        context: z
+          .string()
+          .describe("The context from which the question must be answered"),
+      }),
+      func: async (question, context) => {
+        console.log("Hiiiiii", question.question);
+        console.log("Context: " + question.context);
+        // console.log("Prompt: " + promptBody)
+        let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Just provide the answer to the question.`;
+        // if (promptBody) {
+        //   prompt = promptBody;
+        //   prompt += " Just provide the answer to the question.";
+        // }
+        const model = new ChatVertexAI({
+          temperature: 0,
+          model: "gemini-1.5-flash",
+        });
+        console.log("yeyyeyeyyee");
+        // const model = new langchainOpenAI.ChatOpenAI({
+        //     modelName: "gpt-4-turbo",
+        //     temperature: 0,
+        //   });
+        const parser = new StringOutputParser();
+        const response = await model.pipe(parser)
+          .stream(`Instructions: ${prompt}
+        Context: ${question.context}
+        Question: ${question.question}
+        And if possible, explain the answer in detail.`);
+        // const response = await model.pipe(parser).stream("Hello There");
+        for await (const chunk of response) {
+          console.log("hellooooo");
+          try {
+            console.log(`This is Chunk: ${chunk}|`);
+          } catch (error) {
+            console.log(error);
+          }
+        }
+        console.log("Responseee", response.content);
+        return response.content;
+      },
+    });
+    return [relevantContextsTool, askGeminiTool];
+  }
+  async createAgent(tools) {
+    // const model = new langchainOpenAI.ChatOpenAI({
+    //   modelName: "gpt-4-turbo",
+    //   temperature: 0,
+    // });
+    // const model = new ChatVertexAI({
+    //   temperature: 0,
+    //   model: "gemini-1.5-flash",
+    // });
+
+    const model = new ChatAnthropic({
+      temperature: 0,
+      model: "claude-3-5-sonnet-20240620",
+      // In Node.js defaults to process.env.ANTHROPIC_API_KEY,
+      // apiKey: "YOUR-API-KEY",
+      // maxTokens: 1024,
+    });
+
+    // const modelWithTools = model.bind({functions: tools});
+
+    // const modelWithFunctions = model.bind({
+    //   functions: tools.map((tool) => convertToOpenAIFunction(tool)),
+    // });
+
+    // const answer = await modelWithFunctions.invoke("What is ONDC gateway")
+    // return answer
+    const MEMORY_KEY = "chat_history";
+    const prompt = ChatPromptTemplate.fromMessages([
+      [
+        "system",
+        "You are a very powerful chatbot assistant that answers user's questions accurately. First analyse if a tool needs to be called for answering the question or not or not. If yes, then first call the 'getRelevantContexts' tool. After receivng its response, use the question and the output of the 'getRelevantContexts' tool as parameters to call the 'askGemini' tool. Return the output of the 'askGemini' tool",
+      ],
+      new MessagesPlaceholder(MEMORY_KEY),
+      ["user", "{input}"],
+      new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+
+    const agent = await createToolCallingAgent({
+      llm: model,
+      tools: tools,
+      prompt,
+    });
+    // const agentWithMemory = RunnableSequence.from([
+    //   {
+    //     input: (i) => i.input,
+    //     agent_scratchpad: (i) => formatToOpenAIFunctionMessages(i.steps),
+    //     chat_history: (i) => i.chat_history,
+    //   },
+    //   prompt,
+    //   modelWithFunctions,
+    //   new OpenAIFunctionsAgentOutputParser(),
+    // ]);
+    const agentExecutor = new AgentExecutor({
+      agent,
+      tools: tools,
+    });
+    // const executorWithMemory = AgentExecutor.fromAgentAndTools({
+    //   agent: agentWithMemory,
+    //   tools,
+    //   // verbose: true,
+    //   // returnIntermediateSteps: true,
+    //   // maxIterations: 1,
+    // });
+    return agentExecutor;
+  }
+  async runAgent(agent, question) {
+    const inputs = {
+      input: question,
+      chat_history: PineconeService.chatHistory,
+    };
+    // console.log(inputs)
+    // console.log(agent)
+    const result = await agent.invoke(inputs);
+    // console.log(agent)
+    // console.log("Resultttt", result)
+    PineconeService.chatHistory.push(new HumanMessage(question));
+    PineconeService.chatHistory.push(new AIMessage(result.output));
+    return result;
+  }
+  async askGemini(question, contexts, promptBody) {
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Provide only the answer to the question`;
+    if (promptBody) {
+      prompt = promptBody;
+      prompt += " Provide only the answer to the question";
+    }
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const result = await model.generateContent(`Instructions: ${prompt}
+      Context: ${contexts}
+      Question: ${question}
+      If possible, explain the answer in detail
+      `);
+    PineconeService.chatHistory.push({
+      role: "model",
+      parts: [{ text: result.response.text() }],
+    });
+    // console.log(result.response.text());
+    return result.response.text();
+  }
+  async askGeminiViaLangChain(question, context, promptBody, chat) {
+    const client = new MongoClient(process.env.MONGO_URL || "", {
+      driverInfo: { name: "langchainjs" },
+    });
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Provide only the answer to the question and if possible, explain the answer in detail.`;
+    if (promptBody) {
+      prompt = promptBody;
+      prompt += " Provide only the answer to the question and if possible, explain the answer in detail.";
+    }
+    const finalPrompt = ChatPromptTemplate.fromMessages([
+      [
+        "system",
+        prompt,
+      ],
+      new MessagesPlaceholder("chat_history"),
+      ["user", "{input}"],
+      // new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-flash",
+    });
+    let newChat = chat
+    if(!newChat) {
+      newChat = new Chat({
+        sessionId: new ObjectId().toString(),
+      })
+      await newChat.save()
+    }
+    const chatHistory = new MongoDBChatMessageHistory({
+      collection: collection,
+      sessionId: newChat.sessionId,
+    });
+    const existingMemory = new BufferMemory({
+      chatHistory: chatHistory,
+      returnMessages: true, memoryKey: "chat_history"
+    });
+    console.log("Messages", await chatHistory.getMessages())
+    const llmChain = new ConversationChain({ llm: model, memory: existingMemory, prompt: finalPrompt });
+    const response = await llmChain.call({input: `Context: ${context}, Question: ${question}`});
+    newChat.chatHistory.push({
+      question: question,
+      answer: response.response
+    })
+    await newChat.save()
+    return response.response;
+  }
   async askQna(question, prompt) {
     // const finalQuestion = `
     // Question: ${question}
@@ -817,6 +1145,162 @@ class PineconeService {
         response.sources = sourcesArray;
       }
       return response;
+    } catch (error) {
+      console.log(error);
+      return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
+    }
+  }
+  async createGeminiTools() {
+    const getRelevantContextsTool = {
+      name: "getRelevantContexts",
+      parameters: {
+        type: "OBJECT",
+        description:
+          "Returns an object contaning the relevant context information and its source links based on the provided question",
+        properties: {
+          question: {
+            type: "STRING",
+            description: "The question that the user has asked",
+          },
+        },
+        required: ["question"],
+      },
+    };
+    const askGeminiTool = {
+      name: "askGemini",
+      parameters: {
+        type: "OBJECT",
+        description:
+          "Returns the final answer to the question provided based on the context given",
+        properties: {
+          question: {
+            type: "STRING",
+            description: "The question that the user has asked",
+          },
+          context: {
+            type: "STRING",
+            description:
+              "The context from which the question should be answered",
+          },
+        },
+        required: ["question", "context"],
+      },
+    };
+    return [getRelevantContextsTool, askGeminiTool];
+  }
+  async runGeminiAgent(tools, question, prompt) {
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+      tools: {
+        functionDeclarations: tools,
+      },
+      systemInstruction:
+        "You are a very powerful chatbot assistant that answers user's questions accurately. First, analyse if a tool needs to be called or not. If not, respond with a natural language response as per what you deem fit. If yes, then first get the relevant contexts based on the user question by calling the getRelevantContexts tool and then call the askGemini tool which answers the question based on the context received from the getRelevantContexts tool and returns the final answer",
+    });
+    const chat = model.startChat({
+      history: PineconeService.chatHistory,
+    });
+    const result = await chat.sendMessage(`${question}`);
+    const functions = {
+      getRelevantContexts: async ({ question }) => {
+        return await this.getRelevantContexts(question);
+      },
+      askGemini: async ({ question, context }) => {
+        return await this.askGemini(question, context);
+      },
+    };
+    const functionCalls = result.response.functionCalls();
+    console.log(functionCalls);
+    if (functionCalls && functionCalls.length > 0) {
+      const vectorCall = functionCalls[0];
+      const response = await functions[vectorCall.name](vectorCall.args);
+      console.log(response);
+      if (
+        PineconeService.chatHistory[PineconeService.chatHistory.length - 1]
+          .parts[0].functionCall
+      ) {
+        PineconeService.chatHistory.pop();
+      }
+
+      const geminiResponse = await this.askGemini(
+        question,
+        response.contexts,
+        prompt
+      );
+      console.log("Geminiiiii", geminiResponse);
+      // for (let i = 0; i < PineconeService.chatHistory.length; i++) {
+      //   const element = PineconeService.chatHistory[i];
+      //   console.log(element.parts[0])
+      // }
+      // console.log(PineconeService.chatHistory)
+
+      const finalResponse = await chat.sendMessage([
+        {
+          functionResponse: {
+            name: vectorCall.name,
+            response: {
+              content: geminiResponse,
+            },
+          },
+        },
+      ]);
+
+      console.log(finalResponse.response.text());
+      return {
+        answer: finalResponse.response.text(),
+        sources: response.sources,
+      };
+    }
+  }
+  async makeDecisionFromGemini(question, chat) {
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-pro",
+    });
+    const structuredSchema = z.object({
+      answer: z.string().describe("'Yes' or 'No'"),
+      newQuestion: z
+        .string()
+        .describe(
+          "the new framed question based on the question asked and the chat history provided"
+        ),
+    });
+    const structuredModel = model.withStructuredOutput(structuredSchema);
+    const response =
+      await structuredModel.invoke(`Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
+    Question: ${question}
+    Chat History (List of all previous questions and their answers): ${JSON.stringify(
+      chat && chat.chatHistory && chat.chatHistory.length > 0 ? chat.chatHistory[chat.chatHistory.length - 1] : []
+    )}`);
+    console.log(response);
+    return response;
+  }
+  async askQnAViaGemini(question, prompt, chatId) {
+    try {
+      let finalQuestion = question;
+      let chat = await Chat.findOne({sessionId: chatId})
+      if(chat) {
+        console.log("Making Decision")
+        const decision = await this.makeDecisionFromGemini(
+          question, chat
+        );
+        if (decision.answer == "Yes") {
+          finalQuestion = decision.newQuestion;
+        }
+      }
+      console.log("Finding Relevant Contexts")
+      const context = await this.getRelevantContexts(finalQuestion);
+      let response = await this.askGeminiViaLangChain(finalQuestion, context.contexts, prompt, chat);
+      const finalObj = {
+        question: question,
+        answer: response,
+      };
+      let sourcesArray = [];
+      if (context.sources != "") {
+        sourcesArray = context.sources.split(", ");
+        finalObj.sources = sourcesArray;
+      }
+      return finalObj;
     } catch (error) {
       console.log(error);
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;

@@ -39,7 +39,14 @@
   },
   "dependencies": {
     "@elastic/elasticsearch": "^8.5.0",
+    "@google-cloud/vertexai": "^1.2.0",
+    "@google/generative-ai": "^0.13.0",
+    "@langchain/anthropic": "^0.2.1",
     "@langchain/community": "^0.2.5",
+    "@langchain/google-genai": "^0.0.20",
+    "@langchain/google-vertexai": "^0.0.18",
+    "@langchain/google-vertexai-web": "^0.0.19",
+    "@langchain/mongodb": "^0.0.4",
     "@pinecone-database/pinecone": "^2.2.2",
     "axios": "^1.2.1",
     "bcrypt": "^5.1.0",
@@ -58,6 +65,7 @@
     "langchain": "^0.2.4",
     "lodash": "^4.17.21",
     "moment": "^2.29.4",
+    "mongodb": "^6.7.0",
     "mongoose": "^6.8.1",
     "mongoose-timestamp-plugin": "^0.0.1",
     "multer": "^1.4.5-lts.1",
@@ -69,6 +77,7 @@
     "pdfreader": "^3.0.2",
     "puppeteer": "^19.11.1",
     "redis": "^3.0.2",
-    "uuidv4": "^6.2.13"
+    "uuidv4": "^6.2.13",
+    "zod": "^3.23.8"
   }
 }
