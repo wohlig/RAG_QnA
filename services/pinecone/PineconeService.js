@@ -1057,9 +1057,6 @@ class PineconeService {
     return result.response.text();
   }
   async askGeminiViaLangChain(question, context, promptBody, chat) {
-    const client = new MongoClient(process.env.MONGO_URL || "", {
-      driverInfo: { name: "langchainjs" },
-    });
     let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Provide only the answer to the question and if possible, explain the answer in detail.`;
     if (promptBody) {
       prompt = promptBody;
