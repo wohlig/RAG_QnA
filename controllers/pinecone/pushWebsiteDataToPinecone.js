@@ -36,7 +36,7 @@ const validation = (req, res, next) => {
 }
 const pushWebsiteDataToPinecone = async (req, res) => {
   try {
-    const result = await PineconeService.pushWebsiteDataToBigQuery(req.body.urls)
+    const result = await PineconeService.pushWebsiteDataToBigQueryThroughOpenAI(req.body.urls)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
     console.log('pushWebsiteDataToPinecone Error', err)
