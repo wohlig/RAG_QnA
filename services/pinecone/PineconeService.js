@@ -2733,8 +2733,15 @@ class PineconeService {
     let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`;
     if (promptBody) {
       prompt = promptBody;
+      // prompt +=
+      //   ' Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n}';
+    }
+    if (question.toLowerCase().includes("steps")) {
       prompt +=
-        ' Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n}';
+        ' Provide the final answer in numbered steps and in the following JSON format: {\n  "answer": [\n    {\n      "step": 1,\n      "instruction": "First step of the answer"\n    },\n    {\n      "step": 2,\n      "instruction": "Second step of the answer"\n    },\n    // Add more steps as needed\n  ]\n}';
+    } else {
+      prompt +=
+        ' Give the final answer in the following JSON format: {\n  "answer": "Final answer of the question based on the context provided to you"\n}';
     }
 
     try {
