@@ -30,12 +30,12 @@ const parameters = helpers.toValue({
 });
 console.log("parameters>>>>", parameters);
 const { ChatVertexAI } = require("@langchain/google-vertexai");
-
+const { z } = require("zod");
 const model = new ChatVertexAI({
   authOptions: {
     credentials: JSON.parse(process.env.GOOGLE_VERTEX_SECRETS),
   },
-  temperature: 0.4,
+  temperature: 0,
   model: "gemini-1.5-flash-001",
 });
 const pdf_parse = require("pdf-parse");
@@ -2574,7 +2574,7 @@ class PineconeService {
     for (const file of fileData) {
       try {
         const pdfData = await pdf_parse(file.buffer);
-        let formattedText = pdfData.text
+        let formattedText = pdfData.text;
         // let formattedText = await this.formatTextOpenAI(pdfData.text);
 
         const splitter = new RecursiveCharacterTextSplitter({
@@ -2668,7 +2668,10 @@ class PineconeService {
     console.log("questionEmbedding:", questionEmbedding);
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
     console.log("embeddingString", embeddingString);
-    const sourcesArrayInString = `(${sourcesArray.map(source => `'${source}'`).join(', ')})`
+    const sourcesArrayInString = `(${sourcesArray
+      .map((source) => `'${source}'`)
+      .join(", ")})`;
+    console.log("sourcessss", sourcesArrayInString);
     // const query = `SELECT distinct base.context AS context,
     //               base.source AS source
     //               FROM
@@ -2679,21 +2682,33 @@ class PineconeService {
     //                 top_k => 3,
     //                 distance_type => 'COSINE'
     //                 );`;
-    const query = `SELECT DISTINCT base.context AS context,
+    let query = `SELECT DISTINCT base.context AS context,
                       base.source AS source
-                      FROM 
+                      FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_table,
+                        TABLE ondc_dataset.ondc_gemini,
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_table),
-                        top_k => 3,
+                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
+                        top_k => 10,
                         distance_type => 'COSINE'
-                      ) AS base
+                      ) 
                       WHERE base.source NOT IN ${sourcesArrayInString};`
+    if (sourcesArrayInString == "()") {
+      query = `SELECT DISTINCT base.context AS context,
+      base.source AS source
+      FROM 
+      VECTOR_SEARCH(
+        TABLE ondc_dataset.ondc_gemini,
+        'embedding',
+          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
+        top_k => 10,
+        distance_type => 'COSINE'
+      );`;
+    }
     console.log("query>>>", query);
     try {
       const [rows] = await bigquery.query({ query });
-      console.log("Rows>>>>", rows);
+      // console.log("Rows>>>>", rows);
       const contexts = rows.map((row) => row.context);
       const allSources = rows.map((row) => row.source);
 
@@ -2742,7 +2757,7 @@ class PineconeService {
     return response.choices[0].message.content;
   }
   async askGemini(question, context, promptBody) {
-    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n}`;
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Also, provide the name of the sources from where you fetched the answer. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n \"sources\": [all sources fetched for answer]}`;
     if (promptBody) {
       prompt = promptBody;
       // prompt +=
@@ -2753,7 +2768,7 @@ class PineconeService {
         ' Provide the final answer in numbered steps and in the following JSON format: {\n  "answer": [\n    {\n      "step": 1,\n      "instruction": "First step of the answer"\n    },\n    {\n      "step": 2,\n      "instruction": "Second step of the answer"\n    },\n    // Add more steps as needed\n  ]\n}';
     } else {
       prompt +=
-        ' Give the final answer in the following JSON format: {\n  "answer": "Final answer of the question based on the context provided to you"\n}';
+        ' Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n "sources": sources fetched for answer}';
     }
 
     try {
@@ -2775,33 +2790,22 @@ class PineconeService {
     });
     const structuredSchema = z.object({
       isVersion: z.string().describe("'Yes' or 'No'"),
-      newQuestion: z
-        .string()
-        .describe(
-          "the rephrased question"
-        ),
+      newQuestion: z.string().describe("the rephrased question"),
     });
     const structuredModel = model.withStructuredOutput(structuredSchema);
     const response =
       await structuredModel.invoke(`Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. If so, rephrase the question to include the exact document name. If not, return an empty string.
       Question: ${question}
       Document list:
-      [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0)_Final.pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0)_Final.pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
+      [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
       
       Instructions:
-      1. Check if the user's question mentions a specific version or implies the latest version of a document.
-      2. If a version is mentioned or implied:
+      1. Check if the user's question mentions a specific version.
+      2. If a version is mentioned in user's question:
          a. Identify the corresponding document name from the list.
          b. Rephrase the question to include the exact document name.
          c. Return the rephrased question.
-      3. If no version is mentioned or implied, return an empty string.
-      
-      Example:
-      User question: "Brief me about the API contract of ONDC version 1.2"
-      Rephrased question: "Brief me about the API contract of ondc_v1.2"
-
-      User question: "What are the features of the latest ONDC version?"
-      Rephrased question: ""
+      3. If no version is mentioned in the user's question, return an empty string.
       
       User question: {user_question}
       Rephrased question:`);
@@ -2810,30 +2814,47 @@ class PineconeService {
   }
   async askQna(question, prompt) {
     try {
-      const versionLayer = await this.makeDecisionAboutVersionFromGemini(finalQuestion)
-      let oldVersionArray = []
-      if(versionLayer.answer == "No") {
-        oldVersionArray = ['ONDC - API Contract for Logistics (v1.1.0)_Final.pdf', 'ONDC - API Contract for Logistics (v1.1.0).pdf', 'ONDC - API Contract for Retail (v1.1.0)_Final.pdf', 'ONDC - API Contract for Retail (v1.1.0).pdf', 'ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf', 'ONDC API Contract for IGM (MVP) v1.0.0.pdf', 'ONDC API Contract for IGM MVP v1.0.0.pdf']
-      }
-      else{
-        finalQuestion = versionLayer.newQuestion
+      let finalQuestion = question;
+      const versionLayer = await this.makeDecisionAboutVersionFromGemini(
+        finalQuestion
+      );
+      let oldVersionArray = [];
+      if (versionLayer.isVersion == "No") {
+        oldVersionArray = [
+          "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
+          "ONDC - API Contract for Logistics (v1.1.0).pdf",
+          "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
+          "ONDC - API Contract for Retail (v1.1.0).pdf",
+          "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
+          "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
+          "ONDC API Contract for IGM MVP v1.0.0.pdf",
+        ];
+      } else {
+        finalQuestion = versionLayer.newQuestion;
       }
       console.log("getRelevantContexts");
-      const context = await this.getRelevantContextsBigQuery(question, oldVersionArray);
+      const context = await this.getRelevantContextsBigQuery(
+        finalQuestion,
+        oldVersionArray
+      );
       // const context = await this.getRelevantContextsBigQuery(question);
       console.log("context...", context);
       console.log("askGemini");
-      let response = await this.askGemini(question, context.contexts, prompt);
+      let response = await this.askGemini(
+        finalQuestion,
+        context.contexts,
+        prompt
+      );
       console.log("Response>>>>", response);
       response = response.replace(/```json/g, "");
       response = response.replace(/```/g, "");
       console.log("response...", response);
       response = JSON.parse(response);
-      let sourcesArray = [];
-      if (context.sources != "") {
-        sourcesArray = context.sources.split(", ");
-        response.sources = sourcesArray;
-      }
+      // let sourcesArray = [];
+      // if (context.sources != "") {
+      //   sourcesArray = context.sources.split(", ");
+      //   response.sources = sourcesArray;
+      // }
       return response;
     } catch (error) {
       console.log(error);
