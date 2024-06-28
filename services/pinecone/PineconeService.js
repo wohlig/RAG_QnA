@@ -72,7 +72,11 @@ class PineconeService {
           const meta_batch = docs.slice(i, i_end);
           const ids_batch = meta_batch.map((x) => x.id);
           const texts_batch = meta_batch.map(
-            (x) => `This is from url: ${url}, content: ${x.pageContent.replace(/;/g, '')}`
+            (x) =>
+              `This is from url: ${url}, content: ${x.pageContent.replace(
+                /;/g,
+                ""
+              )}`
           );
 
           const embeddings = await Promise.all(
@@ -2768,9 +2772,11 @@ class PineconeService {
     if (question.toLowerCase().includes("steps")) {
       prompt +=
         ' Provide the final answer in numbered steps and in the following JSON format: {\n  "answer": [\n    {\n      "step": 1,\n      "instruction": "First step of the answer"\n    },\n    {\n      "step": 2,\n      "instruction": "Second step of the answer"\n    },\n    // Add more steps as needed\n  ]\n}';
-    } else {
-      prompt +=
-        ' Also, provide the name of the sources from where you fetched the answer. Also if there is some version mentioned in the question, then please return the sources of that versions only.Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n \"sources\": [all sources fetched for answer]}';
+        'Also, provide the name of the sources from where you fetched the answer. Also if there is some version mentioned in the question, then please return the sources of that versions only.  Provide the final answer in numbered steps. Give the final answer in the following JSON format: {\n  "answer": [\n    {\n      "step": 1,\n      "instruction": "First step of the answer"\n    },\n    {\n      "step": 2,\n      "instruction": "Second step of the answer"\n    },\n    // Add more steps as needed\n  ]\n, "sources": [all sources fetched for answer]'
+    }
+    else{
+    prompt +=
+      ' Also, provide the name of the sources from where you fetched the answer. Also if there is some version mentioned in the question, then please return the sources of that versions only.Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n "sources": [all sources fetched for answer]}';
     }
 
     try {
