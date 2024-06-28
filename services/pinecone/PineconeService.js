@@ -2852,17 +2852,31 @@ class PineconeService {
         context.contexts,
         prompt
       );
-      console.log("Response>>>>", response);
       response = response.replace(/```json/g, "");
       response = response.replace(/```/g, "");
-      console.log("response...", response);
-      response = JSON.parse(JSON.stringify(response));
+      response = response.replace(/\n/g, "");
+
+      // divide the response in three parts
+
+      // first part all the text before  "answer": " including "answer": "
+      let firstPart = response.split('"answer": "')[0];
+      console.log("🚀 ~ askQna ~ firstPart:", firstPart)
+      //  last part all text after ", "sources": [ including ", "sources": [
+      let lastPart = response.split('", "sources": [')[1];
+      console.log("🚀 ~ askQna ~ lastPart:", lastPart)
+      // middle part all text between "answer": " and ", "sources": [
+      let middlePart = response.split('"answer": "')[1].split('", "sources": [')[0];
+      console.log("🚀 ~ askQna ~ middlePart:", middlePart)
+
+      // remove " & , from the middle part
+      middlePart = middlePart.replace(/"/g, "");
+      middlePart = middlePart.replace(/,/g, "");
+      // remove \n from the middle part
+      middlePart = middlePart.replace(/\n/g, "");
+
+      response = firstPart + '"answer": "' + middlePart + '", "sources": [' + lastPart;
+      // console.log("response...", response);
       response = JSON.parse(response)
-      // let sourcesArray = [];
-      // if (context.sources != "") {
-      //   sourcesArray = context.sources.split(", ");
-      //   response.sources = sourcesArray;
-      // }
       return response;
     } catch (error) {
       console.log(error);
