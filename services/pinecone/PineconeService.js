@@ -2856,7 +2856,8 @@ class PineconeService {
       response = response.replace(/```json/g, "");
       response = response.replace(/```/g, "");
       console.log("response...", response);
-      response = JSON.parse(response);
+      response = JSON.parse(JSON.stringify(response));
+      response = JSON.parse(response)
       // let sourcesArray = [];
       // if (context.sources != "") {
       //   sourcesArray = context.sources.split(", ");
