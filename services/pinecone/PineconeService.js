@@ -2860,12 +2860,21 @@ class PineconeService {
 
       // first part all the text before  "answer": " including "answer": "
       let firstPart = response.split('"answer": "')[0];
+      if(question.toLowerCase().includes("steps")){
+        firstPart = response.split('"answer": [')[0];
+      }
       console.log("🚀 ~ askQna ~ firstPart:", firstPart)
       //  last part all text after ", "sources": [ including ", "sources": [
       let lastPart = response.split('", "sources": [')[1];
+      if(question.toLowerCase().includes("steps")){
+        lastPart = response.split('], "sources": [')[1];
+      }
       console.log("🚀 ~ askQna ~ lastPart:", lastPart)
       // middle part all text between "answer": " and ", "sources": [
       let middlePart = response.split('"answer": "')[1].split('", "sources": [')[0];
+      if(question.toLowerCase().includes("steps")){
+        middlePart = response.split('"answer": [')[1].split('], "sources": [')[0];
+      }
       console.log("🚀 ~ askQna ~ middlePart:", middlePart)
 
       // remove " & , from the middle part
@@ -2875,7 +2884,7 @@ class PineconeService {
       middlePart = middlePart.replace(/\n/g, "");
 
       response = firstPart + '"answer": "' + middlePart + '", "sources": [' + lastPart;
-      // console.log("response...", response);
+      console.log("response...", response);
       response = JSON.parse(response)
       return response;
     } catch (error) {
