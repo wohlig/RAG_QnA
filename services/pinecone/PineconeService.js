@@ -2877,6 +2877,8 @@ class PineconeService {
       middlePart = middlePart.replace(/,/g, "");
       // remove \n from the middle part
       middlePart = middlePart.replace(/\n/g, "");
+      // remove \ from the middle part
+      middlePart = middlePart.replace(/\\/g, "");
 
       response = firstPart + '"answer": "' + middlePart + '", "sources": [' + lastPart;
       console.log("response...", response);
