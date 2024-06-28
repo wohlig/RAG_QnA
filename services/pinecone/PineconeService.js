@@ -2757,7 +2757,7 @@ class PineconeService {
     return response.choices[0].message.content;
   }
   async askGemini(question, context, promptBody) {
-    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Also, provide the name of the sources from where you fetched the answer. Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n \"sources\": [all sources fetched for answer]}`;
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Also, provide the name of the sources from where you fetched the answer. Also if there is some version mentioned in the question, then please return the sources of that versions only.Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n \"sources\": [all sources fetched for answer]}`;
     if (promptBody) {
       prompt = promptBody;
       // prompt +=
