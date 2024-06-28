@@ -2855,26 +2855,21 @@ class PineconeService {
       response = response.replace(/```json/g, "");
       response = response.replace(/```/g, "");
       response = response.replace(/\n/g, "");
+      if(question.toLowerCase().includes("steps")){
+        response = JSON.parse(response)
+        return response;
+      }
 
       // divide the response in three parts
 
       // first part all the text before  "answer": " including "answer": "
       let firstPart = response.split('"answer": "')[0];
-      if(question.toLowerCase().includes("steps")){
-        firstPart = response.split('"answer": [')[0];
-      }
       console.log("🚀 ~ askQna ~ firstPart:", firstPart)
       //  last part all text after ", "sources": [ including ", "sources": [
       let lastPart = response.split('", "sources": [')[1];
-      if(question.toLowerCase().includes("steps")){
-        lastPart = response.split('], "sources": [')[1];
-      }
       console.log("🚀 ~ askQna ~ lastPart:", lastPart)
       // middle part all text between "answer": " and ", "sources": [
       let middlePart = response.split('"answer": "')[1].split('", "sources": [')[0];
-      if(question.toLowerCase().includes("steps")){
-        middlePart = response.split('"answer": [')[1].split('], "sources": [')[0];
-      }
       console.log("🚀 ~ askQna ~ middlePart:", middlePart)
 
       // remove " & , from the middle part
