@@ -2669,17 +2669,17 @@ class PineconeService {
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
     console.log("embeddingString", embeddingString);
     const sourcesArrayInString = `(${sourcesArray.map(source => `'${source}'`).join(', ')})`
-    const query = `SELECT distinct base.context AS context,
-                  base.source AS source
-                  FROM
-                  VECTOR_SEARCH(
-                    TABLE ondc_dataset.ondc_table,
-                    'embedding',
-                      (SELECT ${embeddingString} as embedding FROM ondc_dataset.ondc_table),
-                    top_k => 3,
-                    distance_type => 'COSINE'
-                    );`;
-    const newQuery = `SELECT DISTINCT base.context AS context,
+    // const query = `SELECT distinct base.context AS context,
+    //               base.source AS source
+    //               FROM
+    //               VECTOR_SEARCH(
+    //                 TABLE ondc_dataset.ondc_table,
+    //                 'embedding',
+    //                   (SELECT ${embeddingString} as embedding FROM ondc_dataset.ondc_table),
+    //                 top_k => 3,
+    //                 distance_type => 'COSINE'
+    //                 );`;
+    const query = `SELECT DISTINCT base.context AS context,
                       base.source AS source
                       FROM 
                       VECTOR_SEARCH(
@@ -2770,8 +2770,16 @@ class PineconeService {
   }
   async askQna(question, prompt) {
     try {
+      const versionLayer = await this.makeDecisionAboutVersionFromGemini(finalQuestion)
+      let oldVersionArray = []
+      if(versionLayer.answer == "No") {
+        oldVersionArray = ['ONDC - API Contract for Logistics (v1.1.0)_Final.pdf', 'ONDC - API Contract for Logistics (v1.1.0).pdf', 'ONDC - API Contract for Retail (v1.1.0)_Final.pdf', 'ONDC - API Contract for Retail (v1.1.0).pdf', 'ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf', 'ONDC API Contract for IGM (MVP) v1.0.0.pdf', 'ONDC API Contract for IGM MVP v1.0.0.pdf']
+      }
+      else{
+        finalQuestion = versionLayer.newQuestion
+      }
       console.log("getRelevantContexts");
-      const context = await this.getRelevantContextsBigQuery(question);
+      const context = await this.getRelevantContextsBigQuery(question, oldVersionArray);
       // const context = await this.getRelevantContextsBigQuery(question);
       console.log("context...", context);
       console.log("askGemini");
