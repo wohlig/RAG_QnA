@@ -1272,6 +1272,46 @@ class PineconeService {
     console.log(response);
     return response;
   }
+  async makeDecisionAboutVersionFromGemini(question) {
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-pro",
+    });
+    const structuredSchema = z.object({
+      isVersion: z.string().describe("'Yes' or 'No'"),
+      newQuestion: z
+        .string()
+        .describe(
+          "the rephrased question"
+        ),
+    });
+    const structuredModel = model.withStructuredOutput(structuredSchema);
+    const response =
+      await structuredModel.invoke(`Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. If so, rephrase the question to include the exact document name. If not, return an empty string.
+      Question: ${question}
+      Document list:
+      [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0)_Final.pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0)_Final.pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
+      
+      Instructions:
+      1. Check if the user's question mentions a specific version or implies the latest version of a document.
+      2. If a version is mentioned or implied:
+         a. Identify the corresponding document name from the list.
+         b. Rephrase the question to include the exact document name.
+         c. Return the rephrased question.
+      3. If no version is mentioned or implied, return an empty string.
+      
+      Example:
+      User question: "Brief me about the API contract of ONDC version 1.2"
+      Rephrased question: "Brief me about the API contract of ondc_v1.2"
+
+      User question: "What are the features of the latest ONDC version?"
+      Rephrased question: ""
+      
+      User question: {user_question}
+      Rephrased question:`);
+    console.log(response);
+    return response;
+  }
   async askQnAViaGemini(question, prompt, chatId) {
     try {
       let finalQuestion = question;
@@ -1285,8 +1325,16 @@ class PineconeService {
           finalQuestion = decision.newQuestion;
         }
       }
+      const versionLayer = await this.makeDecisionAboutVersionFromGemini(finalQuestion)
+      let oldVersionArray = []
+      if(versionLayer.answer == "No") {
+        oldVersionArray = ['ONDC - API Contract for Logistics (v1.1.0)_Final.pdf', 'ONDC - API Contract for Logistics (v1.1.0).pdf', 'ONDC - API Contract for Retail (v1.1.0)_Final.pdf', 'ONDC - API Contract for Retail (v1.1.0).pdf', 'ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf', 'ONDC API Contract for IGM (MVP) v1.0.0.pdf', 'ONDC API Contract for IGM MVP v1.0.0.pdf']
+      }
+      else{
+        finalQuestion = versionLayer.newQuestion
+      }
       console.log("Finding Relevant Contexts")
-      const context = await this.getRelevantContexts(finalQuestion);
+      const context = await this.getRelevantContexts(finalQuestion, oldVersionArray);
       let response = await this.askGeminiViaLangChain(finalQuestion, context.contexts, prompt, chat);
       const finalObj = {
         question: question,
