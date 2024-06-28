@@ -2660,7 +2660,7 @@ class PineconeService {
     };
     return finalObj;
   }
-  async getRelevantContextsBigQuery(question) {
+  async getRelevantContextsBigQuery(question, sourcesArray) {
     const questionEmbedding = await this.callPredict(
       question,
       "QUESTION_ANSWERING"
@@ -2668,6 +2668,7 @@ class PineconeService {
     console.log("questionEmbedding:", questionEmbedding);
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
     console.log("embeddingString", embeddingString);
+    const sourcesArrayInString = `(${sourcesArray.map(source => `'${source}'`).join(', ')})`
     const query = `SELECT distinct base.context AS context,
                   base.source AS source
                   FROM
@@ -2678,6 +2679,17 @@ class PineconeService {
                     top_k => 3,
                     distance_type => 'COSINE'
                     );`;
+    const newQuery = `SELECT DISTINCT base.context AS context,
+                      base.source AS source
+                      FROM 
+                      VECTOR_SEARCH(
+                        TABLE ondc_dataset.ondc_table,
+                        'embedding',
+                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_table),
+                        top_k => 3,
+                        distance_type => 'COSINE'
+                      ) AS base
+                      WHERE base.source NOT IN ${sourcesArrayInString};`
     console.log("query>>>", query);
     try {
       const [rows] = await bigquery.query({ query });
