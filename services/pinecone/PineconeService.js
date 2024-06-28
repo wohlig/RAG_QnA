@@ -58,8 +58,8 @@ class PineconeService {
         const websiteData = await loader.load();
 
         const splitter = new RecursiveCharacterTextSplitter({
-          chunkSize: 1000,
-          chunkOverlap: 200,
+          chunkSize: 5000,
+          chunkOverlap: 500,
         });
         const docs = await splitter.splitDocuments([websiteData[0]]);
         docs.forEach((doc) => {
@@ -71,11 +71,13 @@ class PineconeService {
           const i_end = Math.min(docs.length, i + batch_size);
           const meta_batch = docs.slice(i, i_end);
           const ids_batch = meta_batch.map((x) => x.id);
-          const texts_batch = meta_batch.map((x) => x.pageContent);
+          const texts_batch = meta_batch.map(
+            (x) => `This is from url: ${url}, content: ${x.pageContent.replace(/;/g, '')}`
+          );
 
           const embeddings = await Promise.all(
             texts_batch.map((text) =>
-              this.callPredict(text.replace(/;/g, "RETRIEVAL_DOCUMENT"))
+              this.callPredict(text, "RETRIEVAL_DOCUMENT")
             )
           );
 
@@ -83,13 +85,13 @@ class PineconeService {
             id: doc.id,
             source: doc.metadata.source || url,
             title: doc.metadata.title || "N/A",
-            context: doc.pageContent,
+            context: `This is from url: ${url}, content: ${doc.pageContent}`,
             embedding: embeddings[index],
           }));
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_table")
+            .table("ondc_gemini")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -2692,7 +2694,7 @@ class PineconeService {
                         top_k => 10,
                         distance_type => 'COSINE'
                       ) 
-                      WHERE base.source NOT IN ${sourcesArrayInString};`
+                      WHERE base.source NOT IN ${sourcesArrayInString};`;
     if (sourcesArrayInString == "()") {
       query = `SELECT DISTINCT base.context AS context,
       base.source AS source
@@ -2757,7 +2759,7 @@ class PineconeService {
     return response.choices[0].message.content;
   }
   async askGemini(question, context, promptBody) {
-    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself. Also, provide the name of the sources from where you fetched the answer. Also if there is some version mentioned in the question, then please return the sources of that versions only.Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n \"sources\": [all sources fetched for answer]}`;
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself`;
     if (promptBody) {
       prompt = promptBody;
       // prompt +=
@@ -2768,7 +2770,7 @@ class PineconeService {
         ' Provide the final answer in numbered steps and in the following JSON format: {\n  "answer": [\n    {\n      "step": 1,\n      "instruction": "First step of the answer"\n    },\n    {\n      "step": 2,\n      "instruction": "Second step of the answer"\n    },\n    // Add more steps as needed\n  ]\n}';
     } else {
       prompt +=
-        ' Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n "sources": sources fetched for answer}';
+        ' Also, provide the name of the sources from where you fetched the answer. Also if there is some version mentioned in the question, then please return the sources of that versions only.Give the final answer in the following JSON format: {\n  \"answer\": final answer of the question based on the context provided to you,\n \"sources\": [all sources fetched for answer]}';
     }
 
     try {
