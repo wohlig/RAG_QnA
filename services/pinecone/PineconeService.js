@@ -2718,17 +2718,17 @@ class PineconeService {
       const [rows] = await bigquery.query({ query });
       // console.log("Rows>>>>", rows);
       const contexts = rows.map((row) => row.context);
-      const allSources = rows.map((row) => row.source);
+      // const allSources = rows.map((row) => row.source);
 
-      const finalContext = contexts.join(" ");
-      const uniqueSources = [...new Set(allSources)];
-      const finalSources = uniqueSources.join(", ");
-      console.log("Data>>>>>>>>", {
-        contexts: finalContext,
-        sources: finalSources,
-      });
+      // const finalContext = contexts.join(" ");
+      // const uniqueSources = [...new Set(allSources)];
+      // const finalSources = uniqueSources.join(", ");
+      // console.log("Data>>>>>>>>", {
+      //   contexts: finalContext,
+      //   sources: finalSources,
+      // });
       return {
-        contexts: finalContext,
+        contexts: contexts,
         sources: finalSources,
       };
     } catch (error) {
