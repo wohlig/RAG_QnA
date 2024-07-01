@@ -2697,7 +2697,7 @@ class PineconeService {
                         TABLE ondc_dataset.ondc_gemini,
                         'embedding',
                           (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
-                        top_k => 10,
+                        top_k => 20,
                         distance_type => 'COSINE'
                       ) 
                       WHERE base.source NOT IN ${sourcesArrayInString};`;
@@ -2709,7 +2709,7 @@ class PineconeService {
         TABLE ondc_dataset.ondc_gemini,
         'embedding',
           (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
-        top_k => 10,
+        top_k => 20,
         distance_type => 'COSINE'
       );`;
     }
