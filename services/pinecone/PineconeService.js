@@ -36,7 +36,9 @@ const model = new ChatVertexAI({
     credentials: JSON.parse(process.env.GOOGLE_VERTEX_SECRETS),
   },
   temperature: 0,
-  model: "gemini-1.5-flash-001",
+  model: "gemini-1.5-flash",
+  maxOutputTokens: 8192
+
 });
 const pdf_parse = require("pdf-parse");
 const { Pinecone } = require("@pinecone-database/pinecone");
@@ -2771,19 +2773,19 @@ class PineconeService {
     }
     if (question.toLowerCase().includes("steps")) {
       prompt +=
-        'Also, provide the name of the sources from where you fetched the answer. Also if there is some version mentioned in the question, then please return the sources of that versions only.  Provide the final answer in numbered steps. Give the final answer in the following JSON format: {"answer": [{"step": 1,"instruction": "First step of the answer"},{"step": 2,"instruction": "Second step of the answer"},// Add more steps as needed], "sources": [all sources fetched for answer]'
-    }
-    else{
-    prompt +=
-      ' Also, provide the name of the sources from where you fetched the answer. Also if there is some version mentioned in the question, then please return the sources of that versions only. Make sure the answer does not contain any double quotes("") or any new lines (\n). Give the final answer in the following JSON format: {"answer": final answer of the question based on the context provided to you,"sources": [all sources fetched for answer]}';
+        'Also, provide the name of the sources from where you fetched the answer.Make sure you only provide the relevant sources from the answer was taken, Also if there is some version mentioned in the question, then please return the sources of that versions only.  Provide the final answer in numbered steps. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:", Dont give the answer in json or array, just the steps trailed by comma or new line, for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
+    } else {
+      prompt +=
+        ' Also, provide the name of the sources from where you fetched the answer. Make sure you only provide the relevant sources from the answer was taken,  Also if there is some version mentioned in the question, then please return the sources of that versions only and get the answer from the contnet of that particular version only, dont take answer from any other version content. Give the final answer in the following format, Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:",  for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
     }
 
     try {
       const response = await model.invoke(
         prompt +
           "\n" +
-          `Context: ${context}\nQuestion: ${question} and if possible explain the answer in detail`
+          `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
       );
+      console.log("Response from Gemini:", response.content);
       return response.content;
     } catch (error) {
       console.error("Error invoking Gemini model:", error);
@@ -2791,37 +2793,42 @@ class PineconeService {
     }
   }
   async makeDecisionAboutVersionFromGemini(question) {
-    const model = new ChatVertexAI({
-      temperature: 0,
-      model: "gemini-1.5-pro",
-    });
-    const structuredSchema = z.object({
-      isVersion: z.string().describe("'Yes' or 'No'"),
-      newQuestion: z.string().describe("the rephrased question"),
-    });
-    const structuredModel = model.withStructuredOutput(structuredSchema);
-    const response =
-      await structuredModel.invoke(`Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
-      Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question.
-      If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
-      If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
-      Question: ${question}
-      Document list:
-      [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
-      
-      Instructions:
-      1. Check if the user's question mentions a specific version.
-      2. Do not assume every alphanumeric combination is a version number
-      3. If unsure whether the question relates to a document version, do not rephrase it
-      4. If a version is mentioned in user's question:
-         a. Identify the corresponding document name from the list.
-         b. If no document found, return isVersion as 'No' and rephrased question as empty string
-         c. if document found, rephrase the question to include the exact document name.
-         d. Return the rephrased question.
-      5. If no version is mentioned in the user's question, return an empty string.
-      `);
-    console.log(response);
-    return response;
+    try {
+      const model = new ChatVertexAI({
+        temperature: 0,
+        model: "gemini-1.5-pro",
+      });
+      const structuredSchema = z.object({
+        isVersion: z.string().describe("'Yes' or 'No'"),
+        newQuestion: z.string().describe("the rephrased question"),
+      });
+      const structuredModel = model.withStructuredOutput(structuredSchema);
+      const response =
+        await structuredModel.invoke(`Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
+        Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question.
+        If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
+        If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
+        Question: ${question}
+        Document list:
+        [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
+        
+        Instructions:
+        1. Check if the user's question mentions a specific version.
+        2. Do not assume every alphanumeric combination is a version number
+        3. If unsure whether the question relates to a document version, do not rephrase it
+        4. If a version is mentioned in user's question:
+           a. Identify the corresponding document name from the list.
+           b. If no document found, return isVersion as 'No' and rephrased question as empty string
+           c. if document found, rephrase the question to include the exact document name.
+           d. Return the rephrased question.
+        5. If no version is mentioned in the user's question, return an empty string.
+        `);
+      console.log(response);
+      return response;
+    } catch (error) {
+      console.error("Error invoking Gemini model:", error);
+      throw error;
+    }
   }
   async askQna(question, prompt) {
     try {
@@ -2857,40 +2864,29 @@ class PineconeService {
         context.contexts,
         prompt
       );
-      response = response.replace(/```json/g, "");
-      response = response.replace(/```/g, "");
-      response = response.replace(/\n/g, "");
-      // if(question.toLowerCase().includes("steps")){
-      //   response = JSON.parse(response)
-      //   return response;
-      // }
+      const answer = "Answer:";
+      const sources = "Sources:";
 
-      // // divide the response in three parts
-
-      // // first part all the text before  "answer": " including "answer": "
-      // let firstPart = response.split('"answer": "')[0];
-      // console.log("🚀 ~ askQna ~ firstPart:", firstPart)
-      // //  last part all text after ", "sources": [ including ", "sources": [
-      // let lastPart = response.split('", "sources": [')[1];
-      // console.log("🚀 ~ askQna ~ lastPart:", lastPart)
-      // // middle part all text between "answer": " and ", "sources": [
-      // let middlePart = response.split('"answer": "')[1].split('", "sources": [')[0];
-      // console.log("🚀 ~ askQna ~ middlePart:", middlePart)
-
-      // // remove " & , from the middle part
-      // middlePart = middlePart.replace(/"/g, "");
-      // middlePart = middlePart.replace(/,/g, "");
-      // // remove \n from the middle part
-      // middlePart = middlePart.replace(/\n/g, "");
-      // // remove \ from the middle part
-      // // middlePart = middlePart.replace(/\\/g, "");
-
-      // response = firstPart + '"answer": "' + middlePart + '", "sources": [' + lastPart;
-      console.log("response...", response);
-      response = JSON.parse(response)
-      return response;
+      let answerStart = response.indexOf(answer) + answer.length;
+      let answerEnd = response.indexOf(sources);
+      let answerText = response.substring(answerStart, answerEnd);
+      answerText = answerText.trim();
+      let sourcesText = response.substring(answerEnd + sources.length);
+      console.log("answerText", answerText);
+      console.log("sourcesText", sourcesText);
+      // remove * from sourcesText
+      sourcesText = sourcesText.replace(/\*/g, "");
+      // convert sourcesText to array
+      let sourcesArray = sourcesText.split(",");
+      sourcesArray = sourcesArray.map((source) => source.trim());
+      console.log("sourcesArray", sourcesArray);
+      const returnObj = {
+        answer: answerText,
+        sources: sourcesArray,
+      };
+      return returnObj;
     } catch (error) {
-      console.log(error);
+      console.log("Error in askQna", error);
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
     }
   }
