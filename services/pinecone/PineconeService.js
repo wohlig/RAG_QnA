@@ -2729,7 +2729,7 @@ class PineconeService {
       // });
       return {
         contexts: contexts,
-        sources: finalSources,
+        // sources: finalSources,
       };
     } catch (error) {
       console.error("Error querying BigQuery:", error);
