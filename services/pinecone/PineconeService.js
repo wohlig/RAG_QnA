@@ -36,8 +36,7 @@ const model = new ChatVertexAI({
   },
   temperature: 0,
   model: "gemini-1.5-flash",
-  maxOutputTokens: 8192
-
+  maxOutputTokens: 8192,
 });
 const pdf_parse = require("pdf-parse");
 
@@ -350,11 +349,19 @@ class PineconeService {
     }
   }
 
-  async callPredict(text, task) {
+  async callPredict(text, task, title = "") {
     try {
-      const instances = text
-        .split(";")
-        .map((e) => helpers.toValue({ content: e }));
+      let instances;
+      if (!title) {
+        instances = text
+          .split(";")
+          .map((e) => helpers.toValue({ content: e, taskType: task }));
+      }
+      else {
+        instances = text
+          .split(";")
+          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
+      }
       const request = { endpoint, instances, parameters };
       const client = new PredictionServiceClient(clientOptions);
       const [response] = await client.predict(request);
