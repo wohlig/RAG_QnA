@@ -13,18 +13,17 @@ const { BigQuery } = require("@google-cloud/bigquery");
 const {
   RecursiveUrlLoader,
 } = require("@langchain/community/document_loaders/web/recursive_url");
-const RagDocs = require("../../mongooseSchema/RagDocs"); // Adjust the path as necessary
+const RagDocs = require("../../mongooseSchema/RagDocs");
 
 const bigquery = new BigQuery({
-  keyFilename: path.join(__dirname, "keys.json"), // Ensure this path points to your service account key
+  keyFilename: path.join(__dirname, "keys.json"),
 });
 const aiplatform = require("@google-cloud/aiplatform");
 const { PredictionServiceClient } = aiplatform.v1;
-const { helpers } = aiplatform; // helps construct protobuf.Value objects.
+const { helpers } = aiplatform;
 const clientOptions = { apiEndpoint: "us-central1-aiplatform.googleapis.com" };
 const location = "us-central1";
 const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publishers/google/models/text-embedding-004`;
-console.log("endpoint>>>>", endpoint);
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
@@ -41,11 +40,6 @@ const model = new ChatVertexAI({
 
 });
 const pdf_parse = require("pdf-parse");
-const { Pinecone } = require("@pinecone-database/pinecone");
-const pinecone = new Pinecone({
-  apiKey: process.env.PINECONE_API_KEY,
-});
-const index = pinecone.index("ondc-rag");
 
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
@@ -105,56 +99,6 @@ class PineconeService {
         console.log("URL Processed:", url);
       } catch (error) {
         console.error("Error processing URL:", url, error.message);
-      }
-    }
-    return "Completed";
-  }
-
-  async pushDocumentsToPinecone(files) {
-    const fileData = files;
-
-    for (const file of fileData) {
-      try {
-        const pdfData = await pdf_parse(file.buffer);
-        let formattedText = await this.formatTextOpenAI(pdfData.text);
-
-        const splitter = new RecursiveCharacterTextSplitter({
-          chunkSize: 1000,
-          chunkOverlap: 200,
-        });
-        const docs = await splitter.createDocuments([formattedText]);
-        docs.forEach((doc) => {
-          doc.id = uuidv4();
-        });
-
-        const batch_size = 100;
-        for (let i = 0; i < docs.length; i += batch_size) {
-          const i_end = Math.min(docs.length, i + batch_size);
-          const meta_batch = docs.slice(i, i_end);
-          const ids_batch = meta_batch.map((x) => x.id);
-          const texts_batch = meta_batch.map((x) => x.pageContent);
-
-          const embeddings = await this.getEmbeddingsBatch(texts_batch);
-
-          const to_upsert = ids_batch.map((id, i) => ({
-            id: id,
-            values: embeddings[i],
-            metadata: {
-              context: meta_batch[i].pageContent,
-              source: file.originalname,
-            },
-          }));
-          await index.upsert(to_upsert);
-          console.log("Successfully uploaded", i / 100);
-        }
-
-        console.log("File Processed:", file.originalname);
-      } catch (error) {
-        console.error(
-          "Error processing file:",
-          file.originalname,
-          error.message
-        );
       }
     }
     return "Completed";
@@ -366,14 +310,12 @@ class PineconeService {
       } else {
         finalQuestion = versionLayer.newQuestion;
       }
-      console.log("getRelevantContexts");
       const context = await this.getRelevantContextsBigQuery(
         finalQuestion,
         oldVersionArray
       );
       // const context = await this.getRelevantContextsBigQuery(question);
       console.log("context...", context);
-      console.log("askGemini");
       let response = await this.askGemini(
         finalQuestion,
         context.contexts,
@@ -407,9 +349,7 @@ class PineconeService {
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
     }
   }
-  async sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
+
   async callPredict(text, task) {
     try {
       const instances = text
@@ -433,7 +373,6 @@ class PineconeService {
       throw error;
     }
   }
-  // Other methods can be refactored similarly...
 }
 
 module.exports = new PineconeService();
