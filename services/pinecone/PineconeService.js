@@ -196,7 +196,8 @@ class PineconeService {
           (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
         top_k => 20,
         distance_type => 'COSINE'
-      );`;
+      )
+      WHERE base.source IN ('${documentName}');`;
     }
     try {
       const [rows] = await bigquery.query({ query });
