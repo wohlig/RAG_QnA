@@ -165,7 +165,7 @@ class PineconeService {
     );
   }
 
-  async getRelevantContextsBigQuery(question, sourcesArray) {
+  async getRelevantContextsBigQuery(question, sourcesArray, documentName) {
     const questionEmbedding = await this.callPredict(
       question.replace(/;/g, ""),
       "QUESTION_ANSWERING"
@@ -179,9 +179,9 @@ class PineconeService {
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_gemini,
+                        TABLE ondc_dataset.ondc_geminititle,
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
+                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
                         top_k => 20,
                         distance_type => 'COSINE'
                       ) 
@@ -191,12 +191,13 @@ class PineconeService {
       base.source AS source
       FROM 
       VECTOR_SEARCH(
-        TABLE ondc_dataset.ondc_gemini,
+        TABLE ondc_dataset.ondc_geminititle,
         'embedding',
-          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
+          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
         top_k => 20,
         distance_type => 'COSINE'
-      );`;
+      )
+      WHERE base.source IN ('${documentName}');`;
     }
     try {
       const [rows] = await bigquery.query({ query });
@@ -234,7 +235,7 @@ class PineconeService {
         'Also, provide the name of the sources from where you fetched the answer.Make sure you only provide the relevant sources from the answer was taken, Also if there is some version mentioned in the question, then please return the sources of that versions only.  Provide the final answer in numbered steps. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:", Dont give the answer in json or array, just the steps trailed by comma or new line, for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
     } else {
       prompt +=
-        ' Also, provide the name of the sources from where you fetched the answer. Make sure you only provide the relevant sources from the answer was taken,  Also if there is some version mentioned in the question, then please return the sources of that versions only and get the answer from the contnet of that particular version only, dont take answer from any other version content. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:",  for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
+        ' Also, provide the name of the sources from where you fetched the answer. Make sure you only provide the relevant sources from the answer was taken,  Also if there is some version mentioned in the question, then please return the sources of that versions only and get the answer from the contnet of that particular version only, dont take answer from any other version content. If the answer contains any APIs, then explain each API in detail as well. If the context contains any contract link relevant to the answer, then provide that link in the answer too. If an example payload is present in the context and can be used to better explain the answer, provide that in the final answer as well. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:",  for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
     }
 
     try {
@@ -259,11 +260,12 @@ class PineconeService {
       const structuredSchema = z.object({
         isVersion: z.string().describe("'Yes' or 'No'"),
         newQuestion: z.string().describe("the rephrased question"),
+        documentName: z.string().describe("exact name of the document"),
       });
       const structuredModel = model.withStructuredOutput(structuredSchema);
       const response =
         await structuredModel.invoke(`Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
-        Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question.
+        Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 as a version-related question.
         If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
         If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
         Question: ${question}
@@ -273,13 +275,14 @@ class PineconeService {
         Instructions:
         1. Check if the user's question mentions a specific version.
         2. Do not assume every alphanumeric combination is a version number
-        3. If unsure whether the question relates to a document version, do not rephrase it
-        4. If a version is mentioned in user's question:
+        3. Also, return the exact name of the document from which the question was asked.
+        4. If unsure whether the question relates to a document version, do not rephrase it
+        5. If a version is mentioned in user's question:
            a. Identify the corresponding document name from the list.
            b. If no document found, return isVersion as 'No' and rephrased question as empty string
-           c. if document found, rephrase the question to include the exact document name.
-           d. Return the rephrased question.
-        5. If no version is mentioned in the user's question, return an empty string.
+           c. If document found, rephrase the question to include the exact document name.
+           d. Return the rephrased question along with the exact document name.
+        6. If no version is mentioned in the user's question, return newQuestion and documentName as an empty string.
         `);
       console.log(response);
       return response;
@@ -295,6 +298,7 @@ class PineconeService {
         finalQuestion
       );
       // return versionLayer
+      let documentName
       let oldVersionArray = [];
       if (versionLayer.isVersion == "No") {
         oldVersionArray = [
@@ -307,11 +311,13 @@ class PineconeService {
           "ONDC API Contract for IGM MVP v1.0.0.pdf",
         ];
       } else {
+        documentName = versionLayer.documentName
         finalQuestion = versionLayer.newQuestion;
       }
       const context = await this.getRelevantContextsBigQuery(
         finalQuestion,
-        oldVersionArray
+        oldVersionArray,
+        documentName
       );
       // const context = await this.getRelevantContextsBigQuery(question);
       console.log("context...", context);
