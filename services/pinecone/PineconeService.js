@@ -21,11 +21,16 @@ const bigquery = new BigQuery({
 const aiplatform = require("@google-cloud/aiplatform");
 const { PredictionServiceClient } = aiplatform.v1;
 const { helpers } = aiplatform;
-const clientOptions = { apiEndpoint: "us-central1-aiplatform.googleapis.com" };
-const location = "us-central1";
-const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publishers/google/models/text-embedding-004`;
+// const clientOptions = { apiEndpoint: "us-central1-aiplatform.googleapis.com" };
+const clientOptions = { apiEndpoint: "us-east4-aiplatform.googleapis.com" };
+const location = "us-east4";
+// const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publishers/google/models/text-embedding-004`;
+const endpointId = "3486212722096340992"
+const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/endpoints/${endpointId}`;
+// const parameters = helpers.toValue({
+//   outputDimensionality: 768,
+// });
 const parameters = helpers.toValue({
-  outputDimensionality: 768,
 });
 console.log("parameters>>>>", parameters);
 const { ChatVertexAI } = require("@langchain/google-vertexai");
@@ -154,6 +159,58 @@ class PineconeService {
         );
       }
     }
+    return "Completed";
+  }
+
+  async getEmbeddings(files) {
+    let allRows = []
+    for (const file of files) {
+      try {
+        const pdfData = await pdf_parse(file.buffer);
+        let formattedText = pdfData.text;
+        // let formattedText = await this.formatTextOpenAI(pdfData.text);
+
+        const splitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 5000,
+          chunkOverlap: 500,
+        });
+        const docs = await splitter.createDocuments([formattedText]);
+        docs.forEach((doc) => {
+          doc.id = uuidv4();
+        });
+
+        const batch_size = 100;
+        for (let i = 0; i < docs.length; i += batch_size) {
+          const i_end = Math.min(docs.length, i + batch_size);
+          const meta_batch = docs.slice(i, i_end);
+          const texts_batch = meta_batch.map((x) => x.pageContent);
+
+          const embeddings = await this.getEmbeddingsBatch(texts_batch);
+          console.log("heyyyyyy")
+          const rows = meta_batch.map((doc, index) => ({
+            id: doc.id,
+            embedding: embeddings[index],
+            context: doc.pageContent,
+            source: file.originalname,
+            title: file.originalname,
+          }));
+          allRows.push(rows);
+          // await bigquery
+          //   .dataset("ondc_dataset")
+          //   .table("ondc_table")
+          //   .insert(rows);
+          console.log("Successfully uploaded", i / 100);
+        }
+        console.log("File Processed:", file.originalname);
+      } catch (error) {
+        console.error(
+          "Error processing file:",
+          file.originalname,
+          error.message
+        );
+      }
+    }
+    return allRows
     return "Completed";
   }
 
@@ -351,21 +408,35 @@ class PineconeService {
 
   async callPredict(text, task, title = "") {
     try {
-      let instances;
-      if (!title) {
-        instances = text
-          .split(";")
-          .map((e) => helpers.toValue({ content: e, taskType: task }));
-      }
-      else {
-        instances = text
-          .split(";")
-          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
-      }
+      // let instances;
+      // if (!title) {
+      //   instances = text
+      //     .split(";")
+      //     .map((e) => helpers.toValue({ content: e, taskType: task }));
+      // }
+      // else {
+      //   instances = text
+      //     .split(";")
+      //     .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
+      // }
+
+      const instances = [
+        {
+          inputs: [
+            `passage: ${text}`
+          ]
+        }
+      ];
       const request = { endpoint, instances, parameters };
+      console.log(request.instances)
       const client = new PredictionServiceClient(clientOptions);
       const [response] = await client.predict(request);
       const predictions = response.predictions;
+
+      // const finalEndpoint = new aiplatform.Endpoint(endpoint)
+      // const response = finalEndpoint.predict({instances})
+      // const predictions = response.predictions;
+      // console.log('This is response', predictions)
 
       for (const prediction of predictions) {
         const embeddings = prediction.structValue.fields.embeddings;
@@ -373,7 +444,7 @@ class PineconeService {
       }
       const embeddings = predictions[0].structValue.fields.embeddings;
       const values = embeddings.structValue.fields.values.listValue.values;
-      console.log("Embeddings creaetd");
+      console.log("Embeddings created");
       return values.map((value) => value.numberValue);
     } catch (error) {
       console.error("Error calling predict:", error);
