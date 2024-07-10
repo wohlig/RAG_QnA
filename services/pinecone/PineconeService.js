@@ -29,16 +29,31 @@ const parameters = helpers.toValue({
 });
 console.log("parameters>>>>", parameters);
 const { ChatVertexAI } = require("@langchain/google-vertexai");
+const {
+  VertexAI,
+  FunctionDeclarationSchemaType,
+} = require('@google-cloud/vertexai');
 const { z } = require("zod");
-const model = new ChatVertexAI({
-  authOptions: {
-    credentials: JSON.parse(process.env.GOOGLE_VERTEX_SECRETS),
-  },
-  temperature: 0,
-  model: "gemini-1.5-flash",
-  maxOutputTokens: 8192,
-});
+// const model = new ChatVertexAI({
+//   authOptions: {
+//     credentials: JSON.parse(process.env.GOOGLE_VERTEX_SECRETS),
+//   },
+//   temperature: 0,
+//   model: "gemini-1.5-flash",
+//   maxOutputTokens: 8192,
+// });
 const pdf_parse = require("pdf-parse");
+// const { GoogleGenerativeAI } = require("@google/generative-ai");
+// const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+if (process.env.GOOGLE_VERTEX_SECRETS) {
+  try {
+    var geminiKey = JSON.parse(
+      process.env.GOOGLE_VERTEX_SECRETS
+  )
+  } catch (error) {
+      console.error("Error reading the JSON file:", error)
+  }
+}
 
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
@@ -165,13 +180,13 @@ class PineconeService {
     );
   }
 
-  async getRelevantContextsBigQuery(question, sourcesArray, documentName) {
+  async getRelevantContextsBigQuery(obj) {
     const questionEmbedding = await this.callPredict(
-      question.replace(/;/g, ""),
+      obj.question.replace(/;/g, ""),
       "QUESTION_ANSWERING"
     );
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
-    const sourcesArrayInString = `(${sourcesArray
+    const sourcesArrayInString = `(${obj.sourcesArray
       .map((source) => `'${source}'`)
       .join(", ")})`;
     console.log("sourcessss", sourcesArrayInString);
@@ -182,7 +197,7 @@ class PineconeService {
                         TABLE ondc_dataset.ondc_geminititle,
                         'embedding',
                           (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
-                        top_k => 20,
+                        top_k => 5,
                         distance_type => 'COSINE'
                       ) 
                       WHERE base.source NOT IN ${sourcesArrayInString};`;
@@ -194,10 +209,10 @@ class PineconeService {
         TABLE ondc_dataset.ondc_geminititle,
         'embedding',
           (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
-        top_k => 20,
+        top_k => 5,
         distance_type => 'COSINE'
       )
-      WHERE base.source IN ('${documentName}');`;
+      WHERE base.source IN ('${obj.documentName}');`;
     }
     try {
       const [rows] = await bigquery.query({ query });
@@ -212,6 +227,7 @@ class PineconeService {
       //   contexts: finalContext,
       //   sources: finalSources,
       // });
+      // return contexts.join(" ")
       return {
         contexts: contexts,
         // sources: finalSources,
@@ -222,15 +238,19 @@ class PineconeService {
     }
   }
 
-  async askGemini(question, context, promptBody) {
+  async askGemini(obj) {
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-flash",
+    });
     let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself`;
-    if (promptBody) {
-      console.log("Prompt Body:", promptBody);
-      prompt = promptBody;
+    if (obj.promptBody) {
+      console.log("Prompt Body:", obj.promptBody);
+      prompt = obj.promptBody;
       // prompt +=
       //   ' Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n}';
     }
-    if (question.toLowerCase().includes("steps")) {
+    if (obj.question.toLowerCase().includes("steps")) {
       prompt +=
         'Also, provide the name of the sources from where you fetched the answer.Make sure you only provide the relevant sources from the answer was taken, Also if there is some version mentioned in the question, then please return the sources of that versions only.  Provide the final answer in numbered steps. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:", Dont give the answer in json or array, just the steps trailed by comma or new line, for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
     } else {
@@ -242,7 +262,7 @@ class PineconeService {
       const response = await model.invoke(
         prompt +
           "\n" +
-          `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
+          `Context: ${obj.context}\nQuestion: ${obj.question} and if possible explain the answer with every detail possible`
       );
       console.log("Response from Gemini:", response.content);
       return response.content;
@@ -251,7 +271,8 @@ class PineconeService {
       throw error;
     }
   }
-  async makeDecisionAboutVersionFromGemini(question) {
+
+  async makeDecisionAboutVersionFromGemini(obj) {
     try {
       const model = new ChatVertexAI({
         temperature: 0,
@@ -268,7 +289,7 @@ class PineconeService {
         Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 as a version-related question.
         If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
         If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
-        Question: ${question}
+        Question: ${obj.question}
         Document list:
         [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
         
@@ -291,6 +312,7 @@ class PineconeService {
       throw error;
     }
   }
+
   async askQna(question, prompt) {
     try {
       let finalQuestion = question;
@@ -353,6 +375,330 @@ class PineconeService {
       console.log("Error in askQna", error);
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
     }
+  }
+
+  async functionDeclarations() {
+    const functionDeclarations = [
+      {
+        function_declarations: [
+          {
+            name: 'makeDecisionAboutVersionFromGemini',
+            description:
+              'Determine whether the given question is a version related question or not and returns the context required for answering the question',
+            parameters: {
+              type: FunctionDeclarationSchemaType.OBJECT,
+              properties: {
+                question: {type: FunctionDeclarationSchemaType.STRING},
+              },
+              required: ['question'],
+            },
+          },
+          {
+            name: 'getRelevantContextsBigQuery',
+            description: 'Get all the relevant contexts based on the given question',
+            parameters: {
+              type: FunctionDeclarationSchemaType.OBJECT,
+              properties: {
+                question: {type: FunctionDeclarationSchemaType.STRING},
+                sourcesArray: {type: FunctionDeclarationSchemaType.ARRAY},
+                documentName: {type: FunctionDeclarationSchemaType.STRING}
+              },
+              required: ['question', 'sourcesArray', 'documentName'],
+            },
+          },
+          {
+            name: 'askGemini',
+            description: 'Get the answer to the given question based on the contexts provided',
+            parameters: {
+              type: FunctionDeclarationSchemaType.OBJECT,
+              properties: {
+                question: {type: FunctionDeclarationSchemaType.STRING},
+                context: {type: FunctionDeclarationSchemaType.STRING},
+                promptBody: {type: FunctionDeclarationSchemaType.STRING}
+              },
+              required: ['question', 'context', 'promptBody'],
+            },
+          },
+        ],
+      },
+    ];
+    return functionDeclarations
+    
+    // const makeDecisionAboutVersionFromGeminiDeclaration = {
+    //   name: 'makeDecisionAboutVersionFromGemini',
+    //   parameters: {
+    //     type: "OBJECT",
+    //     description: "Determine whether the given question is a version related question or not and returns the context required for answering the question",
+    //     properties: {
+    //       question: {
+    //         type: "STRING",
+    //         description: "The question that has been asked by the user",
+    //       }
+    //     },
+    //     required: ["question"],
+    //   }
+    // }
+
+    // const getRelevantContextsBigQueryDeclaration = {
+    //   name: 'getRelevantContextsBigQuery',
+    //   parameters: {
+    //     type: "OBJECT",
+    //     description: "Get all the relevant contexts based on the given question",
+    //     properties: {
+    //       question: {
+    //         type: "STRING",
+    //         description: "The question that has been asked by the user",
+    //       },
+    //       sourcesArray: {
+    //         type: "ARRAY",
+    //         description: "A list of sources (Could be document names or website links)"
+    //       },
+    //       documentName: {
+    //         type: 'STRING',
+    //         description: "Name of a single source (Could be a document or a website link)"
+    //       }
+    //     },
+    //     required: ["question", "sourcesArray", "documentName"],
+    //   }
+    // }
+
+    // const askGeminiDeclaration = {
+    //   name: 'askGemini',
+    //   parameters: {
+    //     type: "OBJECT",
+    //     description: "Get the answer to the given question based on the contexts provided",
+    //     properties: {
+    //       question: {
+    //         type: "STRING",
+    //         description: "The question that has been asked by the user",
+    //       },
+    //       context: {
+    //         type: "ARRAY",
+    //         description: "A list of big texts that contain the answer to the asked question"
+    //       },
+    //       promptBody: {
+    //         type: 'STRING',
+    //         description: "The prompt that is given to the LLM"
+    //       }
+    //     },
+    //     required: ["question", "context"],
+    //   }
+    // }
+
+    // const toolCalls = {
+    //   makeDecisionAboutVersionFromGemini: async ({question}) => {
+    //     const versionLayer = await this.makeDecisionAboutVersionFromGemini(question)
+    //     let documentName
+    //     let oldVersionArray = [];
+    //     if (versionLayer.isVersion == "No") {
+    //       oldVersionArray = [
+    //         "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
+    //         "ONDC - API Contract for Logistics (v1.1.0).pdf",
+    //         "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
+    //         "ONDC - API Contract for Retail (v1.1.0).pdf",
+    //         "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
+    //         "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
+    //         "ONDC API Contract for IGM MVP v1.0.0.pdf",
+    //       ];
+    //     } else {
+    //       documentName = versionLayer.documentName
+    //       finalQuestion = versionLayer.newQuestion;
+    //     }
+    //     return await this.getRelevantContextsBigQuery(versionLayer.newQuestion, oldVersionArray, documentName)
+    //   },
+    //   // getRelevantContextsBigQuery: async ({question, oldVersionArray, documentName}) => {
+    //   //   return await this.getRelevantContextsBigQuery(question, oldVersionArray, documentName)
+    //   // },
+    //   askGemini: async ({question, context, promptBody}) => {
+    //     return await this.askGemini(question, context, promptBody)
+    //   }
+    // };
+    // return {
+    //   tools: [makeDecisionAboutVersionFromGeminiDeclaration, askGeminiDeclaration],
+    //   toolCalls: toolCalls
+    // }
+  }
+
+  async makeToolDecision(request, model, toolName) {
+    let result = await model.generateContent(request);
+    if(result.response && typeof result.response.text() == 'string') {
+      return {
+        isAnswer: true,
+        answer: result.response.text()
+      }
+    }
+    console.log("Call", JSON.stringify(result.response.candidates[0].content));
+    let modelResult = result.response.candidates[0].content
+    request.contents.push(modelResult)
+
+    let toolOutput
+    if(toolName == 'makeDecisionAboutVersionFromGemini') {
+      toolOutput = await this.makeDecisionAboutVersionFromGemini(modelResult.parts[0].functionCall.args)
+    }
+    else if(toolName == 'getRelevantContextsBigQuery') {
+      toolOutput = await this.getRelevantContextsBigQuery(modelResult.parts[0].functionCall.args)
+    }
+    else if(toolName == 'askGemini') {
+      toolOutput = await this.askGemini(modelResult.parts[0].functionCall.args)
+    }
+    request.contents.push({
+      role: 'function',
+      parts: [
+        {
+          functionResponse: {
+            name: toolName,
+            response: toolOutput
+          }
+        }
+      ]
+    })
+    return request
+  }
+
+  async askQnAViaFunctionCalling(question, prompt) {
+    // const project = 'your-cloud-project';
+    // const location = 'us-central1';
+    const textModel =  'gemini-1.5-pro-preview-0409';
+
+    const toolConfig = {
+      function_calling_config: {
+        mode: 'AUTO',
+        // allowed_function_names: ['makeDecisionAboutVersionFromGemini', 'askGemini'],
+      },
+    };
+    
+    const declareFunctions = await this.functionDeclarations()
+    console.log(declareFunctions)
+
+    const vertexAI = new VertexAI({project: geminiKey.project_id, credentials: geminiKey});
+    const generativeModel = vertexAI.preview.getGenerativeModel({
+      model: textModel,
+    });
+    const oldVersionArray = [
+      "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
+      "ONDC - API Contract for Logistics (v1.1.0).pdf",
+      "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
+      "ONDC - API Contract for Retail (v1.1.0).pdf",
+      "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
+      "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
+      "ONDC API Contract for IGM MVP v1.0.0.pdf",
+    ];
+    const finalPrompt = `You are a helpful agent. First call the 'makeDecisionAboutVersionFromGemini' tool. After receving its output, call the 'getRelevantContextsBigQuery' tool with the question provided, the sources provided and the 'documentName' from the previous tool output as input parameters. If the 'isVersion' from 'getRelevantContextsBigQuery' tool output is 'Yes', then keep the sources parameter as empty array ([]) and the question parameter as the 'newQuestion' field value from the previous tool output. Then, use that output along with the question in the 'newQuestion' field from the 'makeDecisionAboutVersionFromGemini' tool output as input for 'askGemini' tool. If the 'isVersion' from 'getRelevantContextsBigQuery' tool output is 'No', then keep the question parameter in the 'askGemini' tool same as the provided question.
+    Question: ${question}
+    Sources: ${oldVersionArray}`
+
+    const request = {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {text: finalPrompt},
+          ],
+        },
+      ],
+      tools: declareFunctions,
+      tool_config: toolConfig,
+      // generation_config: generationConfig,
+    };
+    // let flag = true
+    // let dummyRequest = request
+    // while(flag) {
+    //   dummyRequest = await this.makeToolDecision(dummyRequest, generativeModel)
+    //   if(dummyRequest.isAnswer == true) {
+    //     flag = false
+    //   }
+    // }
+    // return dummyRequest.answer
+    let result = await generativeModel.generateContent(request);
+    console.log("Call 1", JSON.stringify(result.response.candidates[0].content));
+    let modelResult = result.response.candidates[0].content
+    request.contents.push(modelResult)
+    if(modelResult.parts[0].functionCall.name == 'makeDecisionAboutVersionFromGemini') {
+      const toolOutput = await this.makeDecisionAboutVersionFromGemini(modelResult.parts[0].functionCall.args)
+      request.contents.push({
+        role: 'function',
+        parts: [
+          {
+            functionResponse: {
+              name: 'makeDecisionAboutVersionFromGemini',
+              response: toolOutput
+            }
+          }
+        ]
+      })
+      result = await generativeModel.generateContent(request)
+    }
+    console.log("Call 2", JSON.stringify(result.response.candidates[0].content));
+    modelResult = result.response.candidates[0].content
+    request.contents.push(modelResult)
+    if(modelResult.parts[0].functionCall.name == 'getRelevantContextsBigQuery') {
+      const toolOutput = await this.getRelevantContextsBigQuery(modelResult.parts[0].functionCall.args)
+      request.contents.push({
+        role: 'function',
+        parts: [
+          {
+            functionResponse: {
+              name: 'getRelevantContextsBigQuery',
+              response: toolOutput
+            }
+          }
+        ]
+      })
+      result = await generativeModel.generateContent(request)
+    }
+    console.log("Call 3", JSON.stringify(result.response.candidates[0].content));
+    modelResult = result.response.candidates[0].content
+    request.contents.push(modelResult)
+    if(modelResult.parts[0].functionCall.name == 'askGemini') {
+      const toolOutput = await this.askGemini(modelResult.parts[0].functionCall.args)
+      request.contents.push({
+        role: 'function',
+        parts: [
+          {
+            functionResponse: {
+              name: 'askGemini',
+              response: toolOutput
+            }
+          }
+        ]
+      })
+      // return request
+      result = await generativeModel.generateContent(request)
+      console.log("This is result", result)
+    }
+    return result
+    // const generativeModel = genAI.getGenerativeModel({
+    //   // Use a model that supports function calling, like a Gemini 1.5 model
+    //   model: "gemini-1.5-flash",
+    
+    //   // Specify the function declaration.
+    //   tools: {
+    //     functionDeclarations: declareFunctions.tools,
+    //   },
+    // });
+    // const chat = generativeModel.startChat();
+    // const prompt = "Dim the lights so the room feels cozy and warm.";
+    // const result = await chat.sendMessage(finalPrompt);
+    // console.log(result.response)
+    // const call = result.response.functionCalls()[0];
+    // if (call) {
+    //   // Call the executable function named in the function call
+    //   // with the arguments specified in the function call and
+    //   // let it call the hypothetical API.
+    //   const apiResponse = await declareFunctions.toolCalls[call.name](call.args);
+    //   console.log(apiResponse)
+    
+    //   // Send the API response back to the model so it can generate
+    //   // a text response that can be displayed to the user.
+    //   const result2 = await chat.sendMessage([{functionResponse: {
+    //     name: 'makeDecisionAboutVersionFromGemini',
+    //     response: apiResponse
+    //   }}]);
+    
+    //   // Log the text response.
+    //   console.log(result2.response.text());
+    //   return result2.response.text();
+    // }
   }
 
   async callPredict(text, task, title = "") {
