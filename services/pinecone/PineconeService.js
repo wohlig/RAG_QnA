@@ -27,7 +27,7 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
-console.log("parameters>>>>", parameters);
+// console.log("parameters>>>>", parameters);
 const { ChatVertexAI } = require("@langchain/google-vertexai");
 const { z } = require("zod");
 const model = new ChatVertexAI({
@@ -174,7 +174,7 @@ class PineconeService {
     const sourcesArrayInString = `(${sourcesArray
       .map((source) => `'${source}'`)
       .join(", ")})`;
-    console.log("sourcessss", sourcesArrayInString);
+    // console.log("sourcessss", sourcesArrayInString);
     let query = `SELECT DISTINCT base.context AS context,
                       base.source AS source
                       FROM
@@ -223,7 +223,7 @@ class PineconeService {
   }
 
   async askGemini(question, context, promptBody) {
-    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself`;
+    let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. If the answer is not available directly from the context, use your generative AI capabilities to generate the answer while ensuring accuracy. Do no haulicinate`;
     if (promptBody) {
       console.log("Prompt Body:", promptBody);
       prompt = promptBody;
@@ -232,7 +232,7 @@ class PineconeService {
     }
     if (question.toLowerCase().includes("steps")) {
       prompt +=
-        'Also, provide the name of the sources from where you fetched the answer.Make sure you only provide the relevant sources from the answer was taken, Also if there is some version mentioned in the question, then please return the sources of that versions only.  Provide the final answer in numbered steps. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:", Dont give the answer in json or array, just the steps trailed by comma or new line, for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
+        'Also, provide the name of the sources from where you fetched the answer.Make sure you only provide the relevant sources from the answer was taken, Also if there is some version mentioned in the question, then please return the sources of that versions only.  Provide the final answer in numbered steps. Also explain each steps in detail. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:", Dont give the answer in json or array, just the steps trailed by comma or new line, for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources';
     } else {
       prompt +=
         ' Also, provide the name of the sources from where you fetched the answer. Make sure you only provide the relevant sources from the answer was taken,  Also if there is some version mentioned in the question, then please return the sources of that versions only and get the answer from the contnet of that particular version only, dont take answer from any other version content. If the answer contains any APIs, then explain each API in detail as well. If the context contains any contract link relevant to the answer, then provide that link in the answer too. If an example or sample payload can be used to better explain the answer, provide that in the final answer as well. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:",  for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
@@ -261,11 +261,12 @@ class PineconeService {
         isVersion: z.string().describe("'Yes' or 'No'"),
         newQuestion: z.string().describe("the rephrased question"),
         documentName: z.string().describe("exact name of the document"),
+        correctQuestion: z.string().describe("the corrected question"),
       });
       const structuredModel = model.withStructuredOutput(structuredSchema);
       const response =
         await structuredModel.invoke(`Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
-        Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 as a version-related question.
+        Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 or ONDC:RET11 as a version-related question.
         If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
         If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
         Question: ${question}
@@ -283,7 +284,7 @@ class PineconeService {
            c. If document found, rephrase the question to include the exact document name.
            d. Return the rephrased question along with the exact document name.
         6. If no version is mentioned in the user's question, return newQuestion and documentName as an empty string.
-        `);
+        7. Irrespective of versions, If question contains any vocabulary or grammatical errors, or if the ? is needed at the end of the question, correct them. If the question is already correct, do not make any changes. Return the corrected question as the orignal question, dont return empty string.`);
       console.log(response);
       return response;
     } catch (error) {
@@ -310,6 +311,7 @@ class PineconeService {
           "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
           "ONDC API Contract for IGM MVP v1.0.0.pdf",
         ];
+        finalQuestion = versionLayer.correctQuestion;
       } else {
         documentName = versionLayer.documentName
         finalQuestion = versionLayer.newQuestion;
@@ -320,7 +322,7 @@ class PineconeService {
         documentName
       );
       // const context = await this.getRelevantContextsBigQuery(question);
-      console.log("context...", context);
+      // console.log("context...", context);
       let response = await this.askGemini(
         finalQuestion,
         context.contexts,
@@ -338,11 +340,16 @@ class PineconeService {
       console.log("sourcesText", sourcesText);
       // remove * from sourcesText
       sourcesText = sourcesText.replace(/\*/g, "");
+      // replace ``` and \n from sourcesText
+      sourcesText = sourcesText.replace(/```/g, "");
+      sourcesText = sourcesText.replace(/\n/g, "");
       // convert sourcesText to array
       let sourcesArray = sourcesText.split(",");
       sourcesArray = sourcesArray.map((source) => source.trim());
       // keep onnly unique sources
       sourcesArray = [...new Set(sourcesArray)];
+      // remove empty strings from sourcesArray
+      sourcesArray = sourcesArray.filter((source) => source !== "");
       console.log("sourcesArray", sourcesArray);
       const returnObj = {
         answer: answerText,
