@@ -35,7 +35,7 @@ const model = new ChatVertexAI({
     credentials: JSON.parse(process.env.GOOGLE_VERTEX_SECRETS),
   },
   temperature: 0,
-  model: "gemini-1.5-flash",
+  model: "gemini-1.5-pro",
   maxOutputTokens: 8192,
 });
 const pdf_parse = require("pdf-parse");
