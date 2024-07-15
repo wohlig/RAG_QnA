@@ -222,34 +222,20 @@ class PineconeService {
     }
   }
 
-  async askGemini(question, context, promptBody) {
+  async getPrompt(question, promptBody) {
     let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. If the answer is not available directly from the context, use your generative AI capabilities to generate the answer while ensuring accuracy. Do no haulicinate`;
     if (promptBody) {
       console.log("Prompt Body:", promptBody);
       prompt = promptBody;
-      // prompt +=
-      //   ' Give the final answer in the following JSON format: {\n  "answer": final answer of the question based on the context provided to you,\n}';
     }
     if (question.toLowerCase().includes("steps")) {
       prompt +=
-        'Also, provide the name of the sources from where you fetched the answer.Make sure you only provide the relevant sources from the answer was taken, Also if there is some version mentioned in the question, then please return the sources of that versions only.  Provide the final answer in numbered steps. Also explain each steps in detail. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:", Dont give the answer in json or array, just the steps trailed by comma or new line, for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources';
+        " Provide the final answer in numbered steps. Also explain each steps in detail. Give the final answer in the following format, give the answer directly, dont add any prefix or suffix, Dont give the answer in json or array, just the steps trailed by comma or new line. Don't attach any reference or sources in the answer";
     } else {
       prompt +=
-        ' Also, provide the name of the sources from where you fetched the answer. Make sure you only provide the relevant sources from the answer was taken,  Also if there is some version mentioned in the question, then please return the sources of that versions only and get the answer from the contnet of that particular version only, dont take answer from any other version content. If the answer contains any APIs, then explain each API in detail as well. If the context contains any contract link relevant to the answer, then provide that link in the answer too. If an example or sample payload can be used to better explain the answer, provide that in the final answer as well. Give the final answer in the following format, First give the answer, label it as "Answer:", then all sources fetched for answer and label it as "Sources:",  for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources.';
+        " If there is some version mention in the question, then get the answer from the contnet of that particular version only, dont take answer from any other version content. If the answer contains any APIs, then explain each API in detail as well. If the context contains any contract link relevant to the answer, then provide that link in the answer too. If an example or sample payload can be used to better explain the answer, provide that in the final answer as well. Give the final answer in the following format, give the answer directly, dont add any prefix or suffix. Don't attach any reference or sources in the answer";
     }
-
-    try {
-      const response = await model.invoke(
-        prompt +
-          "\n" +
-          `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
-      );
-      console.log("Response from Gemini:", response.content);
-      return response.content;
-    } catch (error) {
-      console.error("Error invoking Gemini model:", error);
-      throw error;
-    }
+    return prompt;
   }
   async makeDecisionAboutVersionFromGemini(question) {
     try {
@@ -292,14 +278,14 @@ class PineconeService {
       throw error;
     }
   }
-  async askQna(question, prompt) {
+  async askQna(question, prompt, sessionId) {
     try {
       let finalQuestion = question;
       const versionLayer = await this.makeDecisionAboutVersionFromGemini(
         finalQuestion
       );
       // return versionLayer
-      let documentName
+      let documentName;
       let oldVersionArray = [];
       if (versionLayer.isVersion == "No") {
         oldVersionArray = [
@@ -313,7 +299,7 @@ class PineconeService {
         ];
         finalQuestion = versionLayer.correctQuestion;
       } else {
-        documentName = versionLayer.documentName
+        documentName = versionLayer.documentName;
         finalQuestion = versionLayer.newQuestion;
       }
       const context = await this.getRelevantContextsBigQuery(
@@ -321,41 +307,25 @@ class PineconeService {
         oldVersionArray,
         documentName
       );
-      // const context = await this.getRelevantContextsBigQuery(question);
-      // console.log("context...", context);
-      let response = await this.askGemini(
-        finalQuestion,
-        context.contexts,
-        prompt
-      );
-      const answer = "Answer:";
-      const sources = "Sources:";
-
-      let answerStart = response.indexOf(answer) + answer.length;
-      let answerEnd = response.indexOf(sources);
-      let answerText = response.substring(answerStart, answerEnd);
-      answerText = answerText.trim();
-      let sourcesText = response.substring(answerEnd + sources.length);
-      console.log("answerText", answerText);
-      console.log("sourcesText", sourcesText);
-      // remove * from sourcesText
-      sourcesText = sourcesText.replace(/\*/g, "");
-      // replace ``` and \n from sourcesText
-      sourcesText = sourcesText.replace(/```/g, "");
-      sourcesText = sourcesText.replace(/\n/g, "");
-      // convert sourcesText to array
-      let sourcesArray = sourcesText.split(",");
+      let finalPrompt = await this.getPrompt(finalQuestion, prompt);
+      
+      const [answerStream, sourcesResponse] = await Promise.all([
+        this.streamAnswer(finalPrompt, context.contexts, question, sessionId),
+        model.invoke(
+          `Below is the question and the context from which the answer is to be fetched. You need to provide the sources from where the answer of the question is present. Make sure you only provide the relevant sources where the answer can be fetched from, Also if there is some version mentioned in the question, then please return the sources of that versions only. for sources only provide the url or file name spearated by comma, dont add any prefix or suffix to the sources. Be accurate in provide the sources, only provide those source where answer is present for the question\nQuestion: ${question}\nContext: ${context.contexts}`
+        )
+      ]);
+  
+      
+      let sourcesArray = sourcesResponse.content.split(",");
       sourcesArray = sourcesArray.map((source) => source.trim());
-      // keep onnly unique sources
       sourcesArray = [...new Set(sourcesArray)];
-      // remove empty strings from sourcesArray
       sourcesArray = sourcesArray.filter((source) => source !== "");
       console.log("sourcesArray", sourcesArray);
-      const returnObj = {
-        answer: answerText,
+      return {
+        answer: answerStream,
         sources: sourcesArray,
       };
-      return returnObj;
     } catch (error) {
       console.log("Error in askQna", error);
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
@@ -369,11 +339,12 @@ class PineconeService {
         instances = text
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task }));
-      }
-      else {
+      } else {
         instances = text
           .split(";")
-          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
+          .map((e) =>
+            helpers.toValue({ content: e, taskType: task, title: title })
+          );
       }
       const request = { endpoint, instances, parameters };
       const client = new PredictionServiceClient(clientOptions);
@@ -392,6 +363,28 @@ class PineconeService {
       console.error("Error calling predict:", error);
       throw error;
     }
+  }
+  async streamAnswer(
+    finalPrompt,
+    context,
+    question,
+    sessionId
+  ) {
+    const answerStream = await model.stream(
+      finalPrompt +
+        "\n" +
+        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
+    )
+    let finalResponse = "";
+      if (sessionId) {
+        for await (const response of answerStream) {
+          finalResponse += response.content;
+          console.log("response", response.content);
+          io.to(sessionId).emit("response", response.content);
+        }
+      }
+      console.log("finalResponse", finalResponse);
+      return finalResponse;
   }
 }
 
