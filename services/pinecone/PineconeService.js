@@ -305,13 +305,21 @@ class PineconeService {
       );
       // const context = await this.getRelevantContextsBigQuery(question);
       let finalPrompt = await this.getPrompt(finalQuestion, prompt);
-
-      const answerStream = await this.streamAnswer(
-        finalPrompt,
-        context.contexts,
-        question,
-        sessionId
-      );
+      var answerStream;
+      if (sessionId) {
+        answerStream = await this.streamAnswer(
+          finalPrompt,
+          context.contexts,
+          question,
+          sessionId
+        );
+      } else {
+        answerStream = await this.directAnswer(
+          finalPrompt,
+          context.contexts,
+          question
+        );
+      }
 
       console.log("Getting sources");
       const sourcesmodel = new ChatVertexAI({
@@ -320,13 +328,12 @@ class PineconeService {
         },
         temperature: 0,
         model: "gemini-1.5-pro",
-        maxOutputTokens: 500
+        maxOutputTokens: 500,
       });
       const sourcesResponse = await sourcesmodel.invoke(
         `Below is the question and the context from which the answer is to be fetched. You need to provide the sources from where the answer of the question is present. Make sure you only provide the relevant sources where the answer can be fetched from, Also if there is some version mentioned in the question, then please return the sources of that versions only. Make sure you return the sources separated by comma (,) For sources only provide the url or file name spearated by comma, dont add any prefix or suffix while giving the response. Give name of the sources exact as provided in the context. Be accurate in provide the sources, only provide those source where answer is present for the question. \nQuestion: ${question}\nContext: ${context.contexts}`
       );
       console.log("Getting sources done");
-
 
       let sourcesArray = sourcesResponse.content.split(",");
       sourcesArray = sourcesArray.map((source) => source.trim());
@@ -388,10 +395,18 @@ class PineconeService {
         console.log("response", response.content);
         io.to(sessionId).emit("response", response.content);
       }
-      console.log("Done")
+      console.log("Done");
     }
     console.log("finalResponse", finalResponse);
     return finalResponse;
+  }
+  async directAnswer(finalPrompt, context, question) {
+    const response = await model.invoke(
+      finalPrompt +
+        "\n" +
+        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
+    );
+    return response.content;
   }
 }
 
