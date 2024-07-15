@@ -11,7 +11,7 @@ const helmet = require('helmet')
 const authMiddleware = require('./middlewares/auth/authentication')
 const numCPUs = __config.clusterNumber || 0
 const fs = require('fs')
-
+const { Server } = require('socket.io');
 class httpApiWorker {
   constructor () {
     this.app = {}
@@ -107,6 +107,32 @@ class httpApiWorker {
       }
     } else {
       vm.app.server = http.createServer(vm.app)
+      console.log("Initializing socket")
+      const io = new Server(vm.app.server, {
+        cors: {
+          origin: '*',
+          methods: ['GET', 'POST']
+      },
+      transports: ['websocket', 'polling'],
+      allowEIO3: true
+      });
+      global.io = io; // Make io accessible globally
+
+      // Listen for socket connections
+      io.on('connection', (socket) => {
+        console.log('A user connected');
+
+        socket.on('disconnect', () => {
+          console.log('A user disconnected');
+        });
+
+        // Handle custom events from the client
+        socket.on('some-event', (data) => {
+          console.log('Received some-event with data:', data);
+          // Emit an event back to the client
+          socket.emit('some-response', { message: 'Response from server' });
+        });
+      });
       vm.app.server.listen(__config.port)
       vm.app.server.timeout = __constants.SERVER_TIMEOUT
     }
