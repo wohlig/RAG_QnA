@@ -132,6 +132,17 @@ class httpApiWorker {
           // Emit an event back to the client
           socket.emit('some-response', { message: 'Response from server' });
         });
+
+        // join a room
+        socket.on('join-room', (room) => {
+          console.log('Joining room:', room);
+          socket.join(room);
+        });
+        // leave a room
+        socket.on('leave-room', (room) => {
+          console.log('Leaving room:', room);
+          socket.leave(room);
+        });
       });
       vm.app.server.listen(__config.port)
       vm.app.server.timeout = __constants.SERVER_TIMEOUT
