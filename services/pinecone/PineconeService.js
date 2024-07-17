@@ -89,7 +89,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_gemini")
+            .table("ondc_geminititle")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -139,7 +139,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_table")
+            .table("ondc_geminititle")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
