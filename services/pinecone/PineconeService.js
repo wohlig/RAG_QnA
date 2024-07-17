@@ -73,10 +73,10 @@ class PineconeService {
                 ""
               )}`
           );
-
+          console.log("url>>>>>>>>>>", url)
           const embeddings = await Promise.all(
             texts_batch.map((text) =>
-              this.callPredict(text, "RETRIEVAL_DOCUMENT")
+              this.callPredict(text, "RETRIEVAL_DOCUMENT", url)
             )
           );
 
@@ -90,7 +90,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_gemini")
+            .table("ondc_geminititle")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -113,8 +113,8 @@ class PineconeService {
         // let formattedText = await this.formatTextOpenAI(pdfData.text);
 
         const splitter = new RecursiveCharacterTextSplitter({
-          chunkSize: 1000,
-          chunkOverlap: 200,
+          chunkSize: 5000,
+          chunkOverlap: 500,
         });
         const docs = await splitter.createDocuments([formattedText]);
         docs.forEach((doc) => {
@@ -126,21 +126,22 @@ class PineconeService {
           const i_end = Math.min(docs.length, i + batch_size);
           const meta_batch = docs.slice(i, i_end);
           const ids_batch = meta_batch.map((x) => x.id);
-          const texts_batch = meta_batch.map((x) => x.pageContent);
-
-          const embeddings = await this.getEmbeddingsBatch(texts_batch);
-
+          const texts_batch = meta_batch.map((x) => ({
+            content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`
+            }));
+          const embeddings = await this.getEmbeddingsBatch(texts_batch,file.originalname);
+          console.log("texts_batch", texts_batch)
           const rows = meta_batch.map((doc, index) => ({
             id: doc.id,
             embedding: embeddings[index],
-            context: doc.pageContent,
+            context: `This is from file: ${file.originalname} , Content: ${doc.pageContent}`,
             source: file.originalname,
             title: file.originalname,
           }));
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_table")
+            .table("ondc_geminititle")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -157,10 +158,10 @@ class PineconeService {
     return "Completed";
   }
 
-  async getEmbeddingsBatch(texts) {
+  async getEmbeddingsBatch(texts, file_name) {
     return Promise.all(
       texts.map((text) =>
-        this.callPredict(text.replace(/;/g, ""), "RETRIEVAL_DOCUMENT")
+        this.callPredict(text.content.replace(/;/g, ""), "RETRIEVAL_DOCUMENT", file_name)
       )
     );
   }
@@ -179,9 +180,9 @@ class PineconeService {
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_gemini,
+                        TABLE ondc_dataset.ondc_geminititle,
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
+                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
                         top_k => 20,
                         distance_type => 'COSINE'
                       ) 
@@ -191,9 +192,9 @@ class PineconeService {
       base.source AS source
       FROM 
       VECTOR_SEARCH(
-        TABLE ondc_dataset.ondc_gemini,
+        TABLE ondc_dataset.ondc_geminititle,
         'embedding',
-          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
+          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
         top_k => 20,
         distance_type => 'COSINE'
       );`;
@@ -351,8 +352,12 @@ class PineconeService {
 
   async callPredict(text, task, title = "") {
     try {
+      console.log("title>>>>>", title)
       let instances;
-      if (!title) {
+      if (task==="RETRIEVAL_DOCUMENT" && title) {
+        instances = text
+          .split(";")
+          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
         instances = text
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task }));
@@ -360,7 +365,7 @@ class PineconeService {
       else {
         instances = text
           .split(";")
-          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
+          .map((e) => helpers.toValue({ content: e, taskType: task }));
       }
       const request = { endpoint, instances, parameters };
       const client = new PredictionServiceClient(clientOptions);
@@ -380,6 +385,7 @@ class PineconeService {
       throw error;
     }
   }
+
 }
 
 module.exports = new PineconeService();
