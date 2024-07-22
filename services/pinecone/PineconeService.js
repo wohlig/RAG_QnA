@@ -4,7 +4,13 @@ const keys = process.env.GOOGLE_SECRETS;
 fs.writeFileSync(path.join(__dirname, "keys.json"), keys);
 const keys2 = process.env.GOOGLE_VERTEX_SECRETS;
 fs.writeFileSync("./vertexkeys.json", keys2);
+const { GoogleGenerativeAI, FunctionDeclarationSchemaType } = require("@google/generative-ai");
+const { StructuredOutputParser } = require("@langchain/core/output_parsers");
+const { RunnableSequence } = require("@langchain/core/runnables");
+const { ChatPromptTemplate } = require("@langchain/core/prompts");
 
+// Access your API key as an environment variable
+// const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const __constants = require("../../config/constants");
 const { compile } = require("html-to-text");
 const { v4: uuidv4 } = require("uuid");
@@ -236,6 +242,7 @@ class PineconeService {
   }
   async makeDecisionAboutVersionFromGemini(question) {
     try {
+      console.log("Making Decision")
       const model = new ChatVertexAI({
         temperature: 0,
         model: "gemini-1.5-pro",
@@ -245,30 +252,119 @@ class PineconeService {
         newQuestion: z.string().describe("the rephrased question"),
         documentName: z.string().describe("exact name of the document"),
       });
-      const structuredModel = model.withStructuredOutput(structuredSchema);
-      const response =
-        await structuredModel.invoke(`Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
-        Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 or ONDC:RET11 as a version-related question.
-        If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
-        If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
-        Question: ${question}
-        Document list:
-        [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
-        
-        Instructions:
-        1. Check if the user's question mentions a specific version.
-        2. Do not assume every alphanumeric combination is a version number
-        3. Also, return the exact name of the document from which the question was asked.
-        4. If unsure whether the question relates to a document version, do not rephrase it
-        5. If a version is mentioned in user's question:
-           a. Identify the corresponding document name from the list.
-           b. If no document found, return isVersion as 'No' and rephrased question as empty string
-           c. If document found, rephrase the question to include the exact document name.
-           d. Return the rephrased question along with the exact document name.
-        6. If no version is mentioned in the user's question, return newQuestion and documentName as an empty string.
-        `);
+      const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
+
+      const chain = RunnableSequence.from([
+        ChatPromptTemplate.fromTemplate(
+          `Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
+          Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 or ONDC:RET11 as a version-related question.
+          If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
+          If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
+          Question: {question}
+          Document list:
+          [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
+          
+          Instructions:
+          1. Check if the user's question mentions a specific version.
+          2. Do not assume every alphanumeric combination is a version number
+          3. Also, return the exact name of the document from which the question was asked.
+          4. If unsure whether the question relates to a document version, do not rephrase it
+          5. If a version is mentioned in user's question:
+             a. Identify the corresponding document name from the list.
+             b. If no document found, return isVersion as 'No' and rephrased question as empty string
+             c. If document found, rephrase the question to include the exact document name.
+             d. Return the rephrased question along with the exact document name.
+          6. If no version is mentioned in the user's question, return newQuestion and documentName as an empty string.
+          
+          Format Instructions: {format_instructions}
+          `
+        ),
+        model,
+        parser,
+      ]);
+
+      const response = await chain.invoke({
+        question: question,
+        format_instructions: parser.getFormatInstructions(),
+      });
+      
       console.log(response);
-      return response;
+      return response
+      // const structuredModel = model.withStructuredOutput(structuredSchema);
+      // const response =
+      //   await structuredModel.invoke(`Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
+      //   Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 or ONDC:RET11 as a version-related question.
+      //   If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
+      //   If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
+      //   Question: ${question}
+      //   Document list:
+      //   [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
+        
+      //   Instructions:
+      //   1. Check if the user's question mentions a specific version.
+      //   2. Do not assume every alphanumeric combination is a version number
+      //   3. Also, return the exact name of the document from which the question was asked.
+      //   4. If unsure whether the question relates to a document version, do not rephrase it
+      //   5. If a version is mentioned in user's question:
+      //      a. Identify the corresponding document name from the list.
+      //      b. If no document found, return isVersion as 'No' and rephrased question as empty string
+      //      c. If document found, rephrase the question to include the exact document name.
+      //      d. Return the rephrased question along with the exact document name.
+      //   6. If no version is mentioned in the user's question, return newQuestion and documentName as an empty string.
+      //   `);
+      // console.log(response);
+      // return response;
+
+
+      // let model = genAI.getGenerativeModel({
+      //   model: "gemini-1.5-pro",
+      //   // Set the `responseMimeType` to output JSON
+      //   // Pass the schema object to the `responseSchema` field
+      //   generationConfig: {
+      //     responseMimeType: "application/json",
+      //     responseSchema: {
+      //       type: FunctionDeclarationSchemaType.ARRAY,
+      //       items: {
+      //         type: FunctionDeclarationSchemaType.OBJECT,
+      //         properties: {
+      //           isVersion: {
+      //             type: FunctionDeclarationSchemaType.STRING,
+      //           },
+      //           newQuestion: {
+      //             type: FunctionDeclarationSchemaType.STRING,
+      //           },
+      //           documentName: {
+      //             type: FunctionDeclarationSchemaType.STRING,
+      //           },
+      //         },
+      //       },
+      //     },
+      //   }
+      // });
+      // let prompt = `Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
+      //    Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 or ONDC:RET11 as a version-related question.
+      //    If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
+      //    If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
+      //    Question: ${question}
+      //    Document list:
+      //    [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
+        
+      //   Instructions:
+      //   1. Check if the user's question mentions a specific version.
+      //   2. Do not assume every alphanumeric combination is a version number
+      //   3. Also, return the exact name of the document from which the question was asked.
+      //   4. If unsure whether the question relates to a document version, do not rephrase it
+      //   5. If a version is mentioned in user's question:
+      //      a. Identify the corresponding document name from the list.
+      //      b. If no document found, return isVersion as 'No' and rephrased question as empty string
+      //      c. If document found, rephrase the question to include the exact document name.
+      //      d. Return the rephrased question along with the exact document name.
+      //   6. If no version is mentioned in the user's question, return newQuestion and documentName as an empty string.
+      //   `;
+
+      // let result = await model.generateContent(prompt)
+      // console.log(JSON.parse(result.response.text())[0])
+      // return JSON.parse(result.response.text())[0]
     } catch (error) {
       console.error("Error invoking Gemini model:", error);
       throw error;
@@ -384,6 +480,7 @@ class PineconeService {
     return finalResponse;
   }
   async directAnswer(finalPrompt, context, question) {
+    console.log("Direct Answer")
     const response = await model.invoke(
       finalPrompt +
         "\n" +
