@@ -440,7 +440,6 @@ class PineconeService {
       },
       temperature: 0,
       model: "gemini-1.5-pro",
-      maxOutputTokens: 500,
       safetySettings: safetySettings
     });
     const sourcesResponse = await sourcesmodel.invoke(
