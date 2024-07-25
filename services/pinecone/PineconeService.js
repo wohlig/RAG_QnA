@@ -257,7 +257,7 @@ class PineconeService {
       prompt +=
         " If there is some version mention in the question, then get the answer from the contnet of that particular version only, dont take answer from any other version content. If the answer contains any APIs, then explain each API in detail as well. If the context contains any contract link relevant to the answer, then provide that link in the answer too. If an example or sample payload can be used to better explain the answer, provide that in the final answer as well. Give the final answer in the following format, give the answer directly, dont add any prefix or suffix. Dont attach any reference or sources in the answer";
     }
-    return prompt;
+    return `${prompt}`;
   }
   async makeDecisionAboutVersionFromGemini(question) {
     try {
@@ -410,7 +410,7 @@ class PineconeService {
     const answerStream = await model.stream(
       finalPrompt +
         "\n" +
-        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
+        `Context: ${context}\nQuestion: ${question} and explain the answer in detail with example payload (if available)`
     );
     let finalResponse = "";
     if (sessionId) {
@@ -429,7 +429,7 @@ class PineconeService {
     const response = await model.invoke(
       finalPrompt +
         "\n" +
-        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
+        `Context: ${context}\nQuestion: ${question} and explain the answer in detail with example payload (if available)`
     );
     return response.content;
   }
