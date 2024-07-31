@@ -4,7 +4,10 @@ const keys = process.env.GOOGLE_SECRETS;
 fs.writeFileSync(path.join(__dirname, "keys.json"), keys);
 const keys2 = process.env.GOOGLE_VERTEX_SECRETS;
 fs.writeFileSync("./vertexkeys.json", keys2);
-const { GoogleGenerativeAI, FunctionDeclarationSchemaType } = require("@google/generative-ai");
+const {
+  GoogleGenerativeAI,
+  FunctionDeclarationSchemaType,
+} = require("@google/generative-ai");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence } = require("@langchain/core/runnables");
 const { ChatPromptTemplate } = require("@langchain/core/prompts");
@@ -12,13 +15,9 @@ const { ChatPromptTemplate } = require("@langchain/core/prompts");
 // Access your API key as an environment variable
 // const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const __constants = require("../../config/constants");
-const { compile } = require("html-to-text");
 const { v4: uuidv4 } = require("uuid");
 const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
 const { BigQuery } = require("@google-cloud/bigquery");
-const {
-  RecursiveUrlLoader,
-} = require("@langchain/community/document_loaders/web/recursive_url");
 const RagDocs = require("../../mongooseSchema/RagDocs");
 
 const bigquery = new BigQuery({
@@ -35,22 +34,22 @@ const parameters = helpers.toValue({
 });
 const safetySettings = [
   {
-      "category": "HARM_CATEGORY_HARASSMENT",
-      "threshold": "BLOCK_NONE",
+    category: "HARM_CATEGORY_HARASSMENT",
+    threshold: "BLOCK_NONE",
   },
   {
-      "category": "HARM_CATEGORY_HATE_SPEECH",
-      "threshold": "BLOCK_NONE",
+    category: "HARM_CATEGORY_HATE_SPEECH",
+    threshold: "BLOCK_NONE",
   },
   {
-      "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-      "threshold": "BLOCK_NONE",
+    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    threshold: "BLOCK_NONE",
   },
   {
-      "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-      "threshold": "BLOCK_NONE",
+    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+    threshold: "BLOCK_NONE",
   },
-]
+];
 const { ChatVertexAI } = require("@langchain/google-vertexai");
 const { z } = require("zod");
 const model = new ChatVertexAI({
@@ -60,11 +59,64 @@ const model = new ChatVertexAI({
   temperature: 0,
   model: "gemini-1.5-pro",
   maxOutputTokens: 8192,
-  safetySettings: safetySettings
+  safetySettings: safetySettings,
 });
 const pdf_parse = require("pdf-parse");
+const { compile } = require("html-to-text");
+const cheerio = require('cheerio');
+const axios = require('axios');
+const {
+  RecursiveUrlLoader,
+} = require("@langchain/community/document_loaders/web/recursive_url");
 
 class PineconeService {
+  async recursiveUrlLoader() {
+    const url = "https://github.com/ONDC-Official";
+
+    const compiledConvert = compile({ wordwrap: 130 }); // returns (text: string) => string;
+
+    const loader = new RecursiveUrlLoader(url, {
+      extractor: compiledConvert,
+      maxDepth: 1,
+      // excludeDirs: ["/docs/api/"],
+      preventOutside: false
+    });
+
+    const docs = await loader.load();
+    const sources = []
+    for (let i = 0; i < docs.length; i++) {
+      const webPage = docs[i];
+      sources.push(webPage.metadata.source)
+    }
+    console.log("This is sources", sources.length)
+    const structuredSchema = z.object({
+      sources: z.string().array().describe("Array of sources returned by LLM")
+    });
+    const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
+    const chain = RunnableSequence.from([
+      ChatPromptTemplate.fromTemplate(
+        `From the below links, return only the ones which are related to ONDC. Return in array format.
+        Links: ${sources}
+      
+        Format Instructions: {format_instructions}
+        `
+      ),
+      model,
+      parser,
+    ]);
+
+    let response = await chain.invoke({
+      format_instructions: parser.getFormatInstructions(),
+    });
+    response = new Set(response.sources)
+    response = Array.from(response)
+    console.log("Final Response", response)
+    // console.log(response.sources.length)
+    return {
+      llmResponse: response,
+      sources: sources
+    }
+  }
   async pushWebsiteDataToBigQuery(urls) {
     for (const url of urls) {
       try {
@@ -150,9 +202,12 @@ class PineconeService {
           const meta_batch = docs.slice(i, i_end);
           const ids_batch = meta_batch.map((x) => x.id);
           const texts_batch = meta_batch.map((x) => ({
-            content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`
-            }));
-          const embeddings = await this.getEmbeddingsBatch(texts_batch,file.originalname);
+            content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`,
+          }));
+          const embeddings = await this.getEmbeddingsBatch(
+            texts_batch,
+            file.originalname
+          );
           const rows = meta_batch.map((doc, index) => ({
             id: doc.id,
             embedding: embeddings[index],
@@ -183,7 +238,11 @@ class PineconeService {
   async getEmbeddingsBatch(texts, file_name) {
     return Promise.all(
       texts.map((text) =>
-        this.callPredict(text.content.replace(/;/g, ""), "RETRIEVAL_DOCUMENT", file_name)
+        this.callPredict(
+          text.content.replace(/;/g, ""),
+          "RETRIEVAL_DOCUMENT",
+          file_name
+        )
       )
     );
   }
@@ -225,10 +284,10 @@ class PineconeService {
       const [rows] = await bigquery.query({ query });
       // console.log("Rows>>>>", rows);
       const contexts = rows.map((row) => row.context);
-      // const allSources = rows.map((row) => row.source);
+      const allSources = rows.map((row) => row.source);
 
       // const finalContext = contexts.join(" ");
-      // const uniqueSources = [...new Set(allSources)];
+      const uniqueSources = [...new Set(allSources)];
       // const finalSources = uniqueSources.join(", ");
       // console.log("Data>>>>>>>>", {
       //   contexts: finalContext,
@@ -236,7 +295,8 @@ class PineconeService {
       // });
       return {
         contexts: contexts,
-        // sources: finalSources,
+        sources: uniqueSources,
+        rows: rows,
       };
     } catch (error) {
       console.error("Error querying BigQuery:", error);
@@ -261,11 +321,11 @@ class PineconeService {
   }
   async makeDecisionAboutVersionFromGemini(question) {
     try {
-      console.log("Making Decision")
+      console.log("Making Decision");
       const model = new ChatVertexAI({
         temperature: 0,
         model: "gemini-1.5-pro",
-        safetySettings: safetySettings
+        safetySettings: safetySettings,
       });
       const structuredSchema = z.object({
         isVersion: z.string().describe("'Yes' or 'No'"),
@@ -307,9 +367,9 @@ class PineconeService {
         question: question,
         format_instructions: parser.getFormatInstructions(),
       });
-      
+
       console.log(response);
-      return response
+      return response;
     } catch (error) {
       console.error("Error invoking Gemini model:", error);
       throw error;
@@ -343,6 +403,7 @@ class PineconeService {
         oldVersionArray,
         documentName
       );
+      return context
       // const context = await this.getRelevantContextsBigQuery(question);
       let finalPrompt = await this.getPrompt(finalQuestion, prompt);
       var answerStream;
@@ -375,15 +436,16 @@ class PineconeService {
   async callPredict(text, task, title = "") {
     try {
       let instances;
-      if (task==="RETRIEVAL_DOCUMENT" && title) {
+      if (task === "RETRIEVAL_DOCUMENT" && title) {
         instances = text
           .split(";")
-          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
+          .map((e) =>
+            helpers.toValue({ content: e, taskType: task, title: title })
+          );
         instances = text
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task }));
-      }
-      else {
+      } else {
         instances = text
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task }));
@@ -425,7 +487,7 @@ class PineconeService {
     return finalResponse;
   }
   async directAnswer(finalPrompt, context, question) {
-    console.log("Direct Answer")
+    console.log("Direct Answer");
     const response = await model.invoke(
       finalPrompt +
         "\n" +
@@ -440,7 +502,7 @@ class PineconeService {
       },
       temperature: 0,
       model: "gemini-1.5-pro",
-      safetySettings: safetySettings
+      safetySettings: safetySettings,
     });
     const sourcesResponse = await sourcesmodel.invoke(
       `Below is the question and the context from which the answer is to be fetched. You need to provide the sources from where the answer of the question is present. Make sure you only provide the relevant sources where the answer can be fetched from, Also if there is some version mentioned in the question, then please return the sources of that versions only. Make sure you return the sources separated by comma (,) For sources only provide the url or file name spearated by comma, dont add any prefix or suffix while giving the response. Give name of the sources exact as provided in the context. Be accurate in provide the sources, only provide those source where answer is present for the question. \nQuestion: ${question}\nContext: ${context.contexts}`
