@@ -85,7 +85,7 @@ class PineconeService {
             context: `This is from url: ${url}, content: ${doc.pageContent}`,
             embedding: embeddings[index],
           }));
-
+          
           await bigquery
             .dataset("ondc_dataset")
             .table("ondc_geminititle")
@@ -100,6 +100,96 @@ class PineconeService {
     }
     return "Completed";
   }
+  async pushTextDataToBigQuery() {
+    const texts = [
+      {
+        context: "This is from file: Mobility FAQs.pdf, Content: Swagger Link for Mobility: https://ondc-official.github.io/mobility-specification/#swagger",
+        title: "Mobility FAQs.pdf",
+        source: "Mobility FAQs.pdf"
+        }
+      
+    ];
+  
+    for (const text of texts) {
+      try {
+        console.log("Processing text from source:", text.source);
+        
+        // Ensure text.page_content is defined
+        if (!text.context) {
+          console.error("text.page_content is undefined", text);
+          continue;
+        }
+  
+        const splitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 5000,
+          chunkOverlap: 500,
+        });
+        const docs = await splitter.createDocuments([text.context]);
+  
+        // Ensure docs are valid
+        if (!Array.isArray(docs)) {
+          console.error("Invalid docs returned from createDocuments", docs);
+          continue;
+        }
+  
+        docs.forEach((doc) => {
+          doc.id = uuidv4();
+        });
+  
+        const batch_size = 100;
+        for (let i = 0; i < docs.length; i += batch_size) {
+          const i_end = Math.min(docs.length, i + batch_size);
+          const meta_batch = docs.slice(i, i_end);
+          
+          // Ensure meta_batch is valid
+          if (!Array.isArray(meta_batch)) {
+            console.error("Invalid meta_batch", meta_batch);
+            continue;
+          }
+  
+          const ids_batch = meta_batch.map((x) => x.id);
+          const texts_batch = meta_batch.map((x) => x.pageContent);
+  
+          // Check for undefined values in texts_batch
+          if (texts_batch.includes(undefined)) {
+            console.error("texts_batch contains undefined values", texts_batch);
+            continue;
+          }
+  
+          const embeddings = await Promise.all(
+            texts_batch.map((text) => this.callPredict(text, "RETRIEVAL_DOCUMENT"))
+          );
+  
+          // Ensure embeddings are valid
+          if (!Array.isArray(embeddings) || embeddings.length === 0) {
+            console.error("No embeddings found", text.source);
+            continue;
+          }
+  
+          const rows = meta_batch.map((doc, index) => ({
+            id: doc.id,
+            embedding: embeddings[index],
+            context: doc.pageContent,
+            source: text.source,
+            title: text.source,
+          }));
+  
+          console.log("rows", rows);
+          
+          await bigquery
+            .dataset("ondc_dataset")
+            .table("ondc_geminititle")
+            .insert(rows);
+  
+          console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
+        }
+      } catch (error) {
+        console.error("Error processing text:", error);
+      }
+    }
+    return "Completed";
+  }
+  
 
   async pushDocumentsToBigQuery(files) {
     const fileData = files;
@@ -339,7 +429,7 @@ class PineconeService {
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
         instances = text
-          .split(";")
+          .split(";") 
           .map((e) => helpers.toValue({ content: e, taskType: task }));
       }
       else {
