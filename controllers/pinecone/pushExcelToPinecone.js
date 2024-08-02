@@ -33,14 +33,14 @@ const validation = (req, res, next) => {
   return validationOfAPI(req, res, next, validationSchema, 'body');
 };
 
-const pushTextDataToPinecone = async (req, res) => {
+const pushExcelDataToPinecone = async (req, res) => {
   try {
     const fileBuffer = req.file.buffer;
     const sheetsData = await readExcelFile(fileBuffer);
     const result = await PineconeService.pushExcelDataToBigQuery(sheetsData);
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result });
   } catch (err) {
-    console.log('pushTextToPinecone Error', err);
+    console.log('pushExcelDataToPinecone Error', err);
     return res.sendJson({
       type: err.type || __constants.RESPONSE_MESSAGES.SERVER_ERROR,
       err: err.err || err,
@@ -48,6 +48,6 @@ const pushTextDataToPinecone = async (req, res) => {
   }
 };
 
-router.post('/pushExcelToPinecone', upload.single('file'), validation, pushTextDataToPinecone);
+router.post('/pushExcelToPinecone', upload.single('file'), validation, pushExcelDataToPinecone);
 
 module.exports = router;
