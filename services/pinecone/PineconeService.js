@@ -101,6 +101,123 @@ class PineconeService {
     return "Completed";
   }
 
+  async pushExcelDataToBigQuery(sheetsData) {
+    try {
+      for (const sheet of sheetsData) {
+        const { sheetName, data } = sheet;
+  
+        for (const row of data) {
+          try {
+            console.log("Processing row from sheet:", sheetName);
+            const question = row.Question || row['Questions '] || row['Questions'];
+            const answer = row.Answer || row['Answers '] || row['Answers'] || ""; // Default to empty string if undefined
+            
+            if (!question) {
+              console.error("Question is undefined", row);
+              continue;
+            }
+            console.log("Row data:", { question, answer });
+  
+            const splitter = new RecursiveCharacterTextSplitter({
+              chunkSize: 5000,
+              chunkOverlap: 500,
+            });
+            const docs = await splitter.createDocuments([question]);
+  
+            if (!Array.isArray(docs)) {
+              console.error("Invalid docs returned from createDocuments", docs);
+              continue;
+            }
+  
+            docs.forEach((doc) => {
+              doc.id = uuidv4();
+            });
+  
+            const batch_size = 100;
+            for (let i = 0; i < docs.length; i += batch_size) {
+              const i_end = Math.min(docs.length, i + batch_size);
+              const meta_batch = docs.slice(i, i_end);
+  
+              if (!Array.isArray(meta_batch)) {
+                console.error("Invalid meta_batch", meta_batch);
+                continue;
+              }
+  
+              const texts_batch = meta_batch.map((x) => x.pageContent);
+  
+              if (texts_batch.includes(undefined)) {
+                console.error("texts_batch contains undefined values", texts_batch);
+                continue;
+              }
+  
+              const embeddings = await Promise.all(
+                texts_batch.map((text) => this.callPredict(text, "RETRIEVAL_DOCUMENT"))
+              );
+  
+              if (!Array.isArray(embeddings) || embeddings.length === 0) {
+                console.error("No embeddings found", question);
+                continue;
+              }
+  
+              const rows = meta_batch.map((doc, index) => ({
+                id: doc.id,
+                docIdInDb: uuidv4(),
+                source: sheetName,
+                question: question,
+                answer: answer, 
+                embedding: embeddings[index],
+                links: row.Link || row['Links'] || ""
+              }));
+  
+              console.log("rows", rows);
+  
+              await bigquery
+                .dataset("ondc_dataset")
+                .table("ondc_question_emb")
+                .insert(rows);
+  
+              console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
+            }
+          } catch (error) {
+            console.error("Error processing row:", error);
+          }
+        }
+      }
+      return "Completed";
+    } catch (error) {
+      console.error("Error processing Excel data:", error);
+    }
+  }
+
+  async getRelevantQuestionsBigQuery(question) {
+    const questionEmbedding = await this.callPredict(
+      question.replace(/;/g, ""),
+      "QUESTION_ANSWERING"
+    );
+    const embeddingString = `[${questionEmbedding.join(", ")}]`;
+    let query = `SELECT DISTINCT base.question AS question
+                FROM
+                VECTOR_SEARCH(
+                  TABLE ondc_dataset.ondc_question_emb,
+                  'embedding',
+                    (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_question_emb),
+                  top_k => 3,
+                  distance_type => 'COSINE'
+                ) ;`;
+    try {
+      const [rows] = await bigquery.query({ query });
+      console.log("rows>>>>>>", rows)
+      const questions = rows.map((row) => row.question); 
+      console.log("questions>>>>>>", questions)
+      return {
+        Questions: questions,
+      };
+    } catch (error) {
+      console.error("Error querying BigQuery:", error);
+      throw error;
+    }
+  }
+
   async pushDocumentsToBigQuery(files) {
     const fileData = files;
 
@@ -235,6 +352,7 @@ class PineconeService {
     return prompt;
   }
   async makeDecisionAboutVersionFromGemini(question) {
+    console.log("makeDecisionAboutVersionFromGemini")
     try {
       const model = new ChatVertexAI({
         temperature: 0,
@@ -277,13 +395,16 @@ class PineconeService {
   async askQna(question, prompt, sessionId) {
     try {
       let finalQuestion = question;
+      console.log("finalQuestion", finalQuestion)
       const versionLayer = await this.makeDecisionAboutVersionFromGemini(
         finalQuestion
       );
       // return versionLayer
       let documentName;
       let oldVersionArray = [];
+      console.log("oldVersionArray")
       if (versionLayer.isVersion == "No") {
+        console.log("versionLayer>>>>>>>>")
         oldVersionArray = [
           "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
           "ONDC - API Contract for Logistics (v1.1.0).pdf",
@@ -294,10 +415,12 @@ class PineconeService {
           "ONDC API Contract for IGM MVP v1.0.0.pdf",
         ];
       } else {
+        console.log("documentName>>>>")
         documentName = versionLayer.documentName;
         finalQuestion = versionLayer.newQuestion;
       }
-      const context = await this.getRelevantContextsBigQuery(
+      // const context = await this.getRelevantContextsBigQuery(
+      const context = await this.getRelevantContextsBigQueryQuest(
         finalQuestion,
         oldVersionArray,
         documentName
@@ -308,12 +431,12 @@ class PineconeService {
       var sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(finalPrompt, context.contexts, question, sessionId),
+          this.streamAnswer(finalPrompt, context, question, sessionId),
           this.getSources(question, context),
         ]);
       } else {
         [answerStream, sourcesArray] = await Promise.all([
-          this.directAnswer(finalPrompt, context.contexts, question),
+          this.directAnswer(finalPrompt, context, question),
           this.getSources(question, context),
         ]);
       }
@@ -358,7 +481,7 @@ class PineconeService {
       }
       const embeddings = predictions[0].structValue.fields.embeddings;
       const values = embeddings.structValue.fields.values.listValue.values;
-      console.log("Embeddings creaetd");
+      console.log("Embeddings created");
       return values.map((value) => value.numberValue);
     } catch (error) {
       console.error("Error calling predict:", error);
