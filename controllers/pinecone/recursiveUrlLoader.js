@@ -36,7 +36,8 @@ const validation = (req, res, next) => {
 }
 const recursiveUrlLoader = async (req, res) => {
   try {
-    const result = await PineconeService.recursiveUrlLoader()
+    // const result = await PineconeService.recursiveUrlLoader()
+    const result = await PineconeService.getAllUrlsFromWebpage()
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
     console.log('recursiveUrlLoader Error', err)

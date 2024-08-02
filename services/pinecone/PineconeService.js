@@ -63,11 +63,13 @@ const model = new ChatVertexAI({
 });
 const pdf_parse = require("pdf-parse");
 const { compile } = require("html-to-text");
-const cheerio = require('cheerio');
-const axios = require('axios');
+const cheerio = require("cheerio");
+const axios = require("axios");
 const {
   RecursiveUrlLoader,
 } = require("@langchain/community/document_loaders/web/recursive_url");
+const puppeteer = require("puppeteer");
+const { trusted } = require("mongoose");
 
 class PineconeService {
   async recursiveUrlLoader() {
@@ -79,42 +81,104 @@ class PineconeService {
       extractor: compiledConvert,
       maxDepth: 1,
       // excludeDirs: ["/docs/api/"],
-      preventOutside: false
+      preventOutside: false,
     });
 
     const docs = await loader.load();
-    const sources = []
+    const sources = [];
     for (let i = 0; i < docs.length; i++) {
       const webPage = docs[i];
-      sources.push(webPage.metadata.source)
+      sources.push(webPage.metadata.source);
     }
-    console.log("This is sources", sources.length)
-    const structuredSchema = z.object({
-      sources: z.string().array().describe("Array of sources returned by LLM")
-    });
-    const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
-    const chain = RunnableSequence.from([
-      ChatPromptTemplate.fromTemplate(
-        `From the below links, return only the ones which are related to ONDC. Return in array format.
-        Links: ${sources}
+    console.log("Sources", sources.length);
+    // const structuredSchema = z.object({
+    //   sources: z.string().array().describe("Array of sources returned by LLM"),
+    // });
+    // const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
+    // const chain = RunnableSequence.from([
+    //   ChatPromptTemplate.fromTemplate(
+    //     `From the below links, return all the ones which contain the word 'ONDC' or 'ondc'. Return in array format.
+    //     Links: ${sources}
       
-        Format Instructions: {format_instructions}
-        `
-      ),
-      model,
-      parser,
-    ]);
+    //     Format Instructions: {format_instructions}
+    //     `
+    //   ),
+    //   model,
+    //   parser,
+    // ]);
 
-    let response = await chain.invoke({
-      format_instructions: parser.getFormatInstructions(),
-    });
-    response = new Set(response.sources)
+    // let response = await chain.invoke({
+    //   format_instructions: parser.getFormatInstructions(),
+    // });
+    // response = new Set(response.sources);
+    // response = Array.from(response);
+    let response = []
+      for (let i = 0; i < sources.length; i++) {
+        let source = sources[i];
+        if((source.includes('ONDC') || source.includes('ondc')) && (source.startsWith('http') || source.startsWith('https'))){
+          if(source.endsWith('/')) {
+            source = source.substring(0, source.length - 1);
+          }
+          response.push(source)
+        }
+      }
+      response = new Set(response);
     response = Array.from(response)
-    console.log("Final Response", response)
-    // console.log(response.sources.length)
+    console.log("Array Sources", response.length);
     return {
       llmResponse: response,
-      sources: sources
+      sources: sources,
+    };
+  }
+
+  async getAllUrlsFromWebpage() {
+    try {
+      const url = "https://github.com/ONDC-Official";
+      const { data } = await axios.get(url);
+      const $ = cheerio.load(data);
+
+      const sources = [];
+      $("a").each((index, element) => {
+        const href = $(element).attr("href");
+        if (href) {
+          sources.push(href);
+        }
+      });
+      console.log("Sources", sources.length);
+      let response = []
+      let count = 0
+      for (let i = 0; i < sources.length; i++) {
+        let source = sources[i];
+        if((source.includes('ONDC') || source.includes('ondc')) && !source.includes('npmjs') && !source.includes('twitter')){
+          if(source.endsWith('/')) {
+            source = source.substring(0, source.length - 1);
+          }
+          if(source.startsWith('/')) {
+            source = `https://github.com${source}`;
+          }
+          let pageData
+          try {
+            pageData = await axios.get(source)
+            response.push(source)
+          } catch (error) {
+            count++
+            console.log(count)
+          }
+        }
+        else if(source.includes('docs.google.com') || source.includes('drive.google.com')) {
+          response.push(source)
+        }
+      }
+      response = new Set(response);
+      response = Array.from(response);
+      console.log("Final Responses", response.length);
+      return {
+        llmReponse: response,
+        sources: sources,
+      };
+    } catch (error) {
+      console.error(`Error fetching the webpage: ${error.message}`);
+      return [];
     }
   }
   async pushWebsiteDataToBigQuery(urls) {
@@ -403,7 +467,6 @@ class PineconeService {
         oldVersionArray,
         documentName
       );
-      return context
       // const context = await this.getRelevantContextsBigQuery(question);
       let finalPrompt = await this.getPrompt(finalQuestion, prompt);
       var answerStream;
