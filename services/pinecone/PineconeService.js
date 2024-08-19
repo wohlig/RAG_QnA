@@ -29,6 +29,8 @@ const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
 const { ChatVertexAI } = require("@langchain/google-vertexai");
+const { MongoClient, ObjectId } = require("mongodb");
+const { MongoDBChatMessageHistory } = require("@langchain/mongodb");
 const { z } = require("zod");
 const model = new ChatVertexAI({
   authOptions: {
