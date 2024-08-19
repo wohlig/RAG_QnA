@@ -464,15 +464,62 @@ class PineconeService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
-  async directAnswer(finalPrompt, context, question) {
+  async directAnswer(finalPrompt, context, question, chat) {
     console.log("Direct Answer")
-    const response = await model.invoke(
-      finalPrompt +
+    const newPrompt = ChatPromptTemplate.fromMessages([
+      ["system", finalPrompt],
+      new MessagesPlaceholder("chat_history"),
+      ["user", "{input}"],
+      // new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-flash",
+    });
+    let newChat = chat;
+    if (!newChat) {
+      newChat = new Chat({
+        sessionId: new ObjectId().toString(),
+      });
+      await newChat.save();
+    }
+    const chatHistory = new MongoDBChatMessageHistory({
+      collection: collection,
+      sessionId: newChat.sessionId,
+    });
+    const existingMemory = new BufferMemory({
+      chatHistory: chatHistory,
+      returnMessages: true,
+      memoryKey: "chat_history",
+    });
+    console.log("Messages", await chatHistory.getMessages());
+    const llmChain = new ConversationChain({
+      llm: model,
+      memory: existingMemory,
+      prompt: newPrompt,
+    });
+    const response = await llmChain.call({
+      input:
+        finalPrompt +
         "\n" +
-        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
-    );
-    return response.content;
+        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`,
+    });
+    newChat.chatHistory.push({
+      question: question,
+      answer: response.response,
+    });
+    await newChat.save();
+ 
+ 
+    // const response = await model.invoke(
+    //   finalPrompt +
+    //     "\n" +
+    //     `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
+    // );
+    // return response.content;
+    return response.response;
   }
+ 
   async getSources(question, context) {
     const sourcesmodel = new ChatVertexAI({
       authOptions: {
