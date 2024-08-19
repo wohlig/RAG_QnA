@@ -9,6 +9,9 @@ const __constants = require("../../config/constants");
 const { compile } = require("html-to-text");
 const { v4: uuidv4 } = require("uuid");
 const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
+const { StructuredOutputParser } = require("@langchain/core/output_parsers");
+const { RunnableSequence } = require("@langchain/core/runnables");
+const { ChatPromptTemplate } = require("@langchain/core/prompts");
 const { BigQuery } = require("@google-cloud/bigquery");
 const {
   RecursiveUrlLoader,
@@ -267,11 +270,11 @@ class PineconeService {
   }
   async makeDecisionAboutVersionFromGemini(question) {
     try {
-      console.log("Making decision about version")
+      console.log("Making decision about version");
       const model = new ChatVertexAI({
         temperature: 0,
         model: "gemini-1.5-pro",
-        safetySettings: safetySettings
+        safetySettings: safetySettings,
       });
       const structuredSchema = z.object({
         isVersion: z.string().describe("'Yes' or 'No'"),
@@ -313,19 +316,20 @@ class PineconeService {
         question: question,
         format_instructions: parser.getFormatInstructions(),
       });
-      
+
       console.log(response);
-      return response
+      return response;
     } catch (error) {
       console.error("Error invoking Gemini model:", error);
       throw error;
     }
   }
   async makeDecisionFromGemini(question, chat) {
-    console.log("Rephrasing Question")
+    console.log("Rephrasing Question");
     const model = new ChatVertexAI({
       temperature: 0,
       model: "gemini-1.5-pro",
+      safetySettings: safetySettings,
     });
     const structuredSchema = z.object({
       answer: z.string().describe("'Yes' or 'No'"),
@@ -335,17 +339,32 @@ class PineconeService {
           "the new framed question based on the question asked and the chat history provided"
         ),
     });
-    const structuredModel = model.withStructuredOutput(structuredSchema);
-    const response =
-      await structuredModel.invoke(`Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
+    const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
+    const chain = RunnableSequence.from([
+      ChatPromptTemplate.fromTemplate(
+        `Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
     Question: ${question}
     Chat History (List of all previous questions and their answers): ${JSON.stringify(
-      chat && chat.chatHistory && chat.chatHistory.length > 0 ? chat.chatHistory[chat.chatHistory.length - 1] : []
-    )}`);
+      chat && chat.chatHistory && chat.chatHistory.length > 0
+        ? chat.chatHistory[chat.chatHistory.length - 1]
+        : []
+    )}
+        Format Instructions: {format_instructions}
+        `
+      ),
+      model,
+      parser,
+    ]);
+
+    const response = await chain.invoke({
+      question: question,
+      format_instructions: parser.getFormatInstructions(),
+    });
+
     console.log(response);
     return response;
   }
- 
+
   async askQna(question, prompt, sessionId, chatId) {
     try {
       let finalQuestion = question;
