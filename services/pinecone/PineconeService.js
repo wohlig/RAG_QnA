@@ -509,7 +509,7 @@ class PineconeService {
   }
   async directAnswer(finalPrompt, context, question, chat) {
     const newPrompt = ChatPromptTemplate.fromMessages([
-      ["system", prompt],
+      ["system", finalPrompt],
       new MessagesPlaceholder("chat_history"),
       ["user", "{input}"],
       // new MessagesPlaceholder("agent_scratchpad"),
