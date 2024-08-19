@@ -372,7 +372,6 @@ class PineconeService {
       model,
       parser,
     ]);
-
     const response = await chain.invoke({
       question: question,
       format_instructions: parser.getFormatInstructions(),
