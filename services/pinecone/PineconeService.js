@@ -336,7 +336,6 @@ class PineconeService {
       let finalQuestion = question;
       let chat = await Chat.findOne({ sessionId: chatId });
       if (chat) {
-        console.log("Making Decision");
         const decision = await this.makeDecisionFromGemini(question, chat);
         if (decision.answer == "Yes") {
           finalQuestion = decision.newQuestion;
