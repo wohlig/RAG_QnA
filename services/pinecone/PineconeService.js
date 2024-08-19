@@ -35,6 +35,27 @@ const { ChatVertexAI } = require("@langchain/google-vertexai");
 const { MongoClient, ObjectId } = require("mongodb");
 const { MongoDBChatMessageHistory } = require("@langchain/mongodb");
 const { z } = require("zod");
+const pdf_parse = require("pdf-parse");
+const { ConversationChain } = require("langchain/chains");
+const { BufferMemory } = require("langchain/memory");
+const safetySettings = [
+  {
+      "category": "HARM_CATEGORY_HARASSMENT",
+      "threshold": "BLOCK_ONLY_HIGH",
+  },
+  {
+      "category": "HARM_CATEGORY_HATE_SPEECH",
+      "threshold": "BLOCK_ONLY_HIGH",
+  },
+  {
+      "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+      "threshold": "BLOCK_ONLY_HIGH",
+  },
+  {
+      "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+      "threshold": "BLOCK_ONLY_HIGH",
+  },
+]
 const model = new ChatVertexAI({
   authOptions: {
     credentials: JSON.parse(process.env.GOOGLE_VERTEX_SECRETS),
@@ -42,11 +63,8 @@ const model = new ChatVertexAI({
   temperature: 0,
   model: "gemini-1.5-pro",
   maxOutputTokens: 8192,
+  safetySettings: safetySettings
 });
-const pdf_parse = require("pdf-parse");
-const { ConversationChain } = require("langchain/chains");
-const { BufferMemory } = require("langchain/memory");
-
 let collection;
 (async () => {
   let hasRun = false;
