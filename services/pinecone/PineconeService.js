@@ -41,6 +41,27 @@ const model = new ChatVertexAI({
   maxOutputTokens: 8192,
 });
 const pdf_parse = require("pdf-parse");
+const { ConversationChain } = require("langchain/chains");
+const { BufferMemory } = require("langchain/memory");
+
+let collection;
+(async () => {
+  let hasRun = false;
+  if (!hasRun) {
+    const client = new MongoClient(process.env.MONGO_URL || "", {
+      driverInfo: { name: "langchainjs" },
+    });
+    try {
+      await client.connect();
+      collection = client
+        .db(process.env.DB_NAME)
+        .collection(process.env.COLLECTION_NAME);
+      hasRun = true;
+    } catch (error) {
+      console.error("Error connecting to MongoDB:", error);
+    }
+  }
+})();
 
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
@@ -128,9 +149,12 @@ class PineconeService {
           const meta_batch = docs.slice(i, i_end);
           const ids_batch = meta_batch.map((x) => x.id);
           const texts_batch = meta_batch.map((x) => ({
-            content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`
-            }));
-          const embeddings = await this.getEmbeddingsBatch(texts_batch,file.originalname);
+            content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`,
+          }));
+          const embeddings = await this.getEmbeddingsBatch(
+            texts_batch,
+            file.originalname
+          );
           const rows = meta_batch.map((doc, index) => ({
             id: doc.id,
             embedding: embeddings[index],
@@ -161,7 +185,11 @@ class PineconeService {
   async getEmbeddingsBatch(texts, file_name) {
     return Promise.all(
       texts.map((text) =>
-        this.callPredict(text.content.replace(/;/g, ""), "RETRIEVAL_DOCUMENT", file_name)
+        this.callPredict(
+          text.content.replace(/;/g, ""),
+          "RETRIEVAL_DOCUMENT",
+          file_name
+        )
       )
     );
   }
@@ -239,6 +267,7 @@ class PineconeService {
   }
   async makeDecisionAboutVersionFromGemini(question) {
     try {
+      console.log("Making decision about version")
       const model = new ChatVertexAI({
         temperature: 0,
         model: "gemini-1.5-pro",
@@ -277,19 +306,42 @@ class PineconeService {
       throw error;
     }
   }
+  async makeDecisionFromGemini(question, chat) {
+    console.log("Rephrasing Question")
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-pro",
+    });
+    const structuredSchema = z.object({
+      answer: z.string().describe("'Yes' or 'No'"),
+      newQuestion: z
+        .string()
+        .describe(
+          "the new framed question based on the question asked and the chat history provided"
+        ),
+    });
+    const structuredModel = model.withStructuredOutput(structuredSchema);
+    const response =
+      await structuredModel.invoke(`Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
+    Question: ${question}
+    Chat History (List of all previous questions and their answers): ${JSON.stringify(
+      chat && chat.chatHistory && chat.chatHistory.length > 0 ? chat.chatHistory[chat.chatHistory.length - 1] : []
+    )}`);
+    console.log(response);
+    return response;
+  }
+ 
   async askQna(question, prompt, sessionId, chatId) {
     try {
       let finalQuestion = question;
-      let chat = await Chat.findOne({sessionId: chatId})
-     if(chat) {
-       console.log("Making Decision")
-       const decision = await this.makeDecisionFromGemini(
-         question, chat
-       );
-       if (decision.answer == "Yes") {
-         finalQuestion = decision.newQuestion;
-       }
-     }
+      let chat = await Chat.findOne({ sessionId: chatId });
+      if (chat) {
+        console.log("Making Decision");
+        const decision = await this.makeDecisionFromGemini(question, chat);
+        if (decision.answer == "Yes") {
+          finalQuestion = decision.newQuestion;
+        }
+      }
 
       const versionLayer = await this.makeDecisionAboutVersionFromGemini(
         finalQuestion
@@ -322,7 +374,13 @@ class PineconeService {
       var sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(finalPrompt, context.contexts, question, sessionId, chat),
+          this.streamAnswer(
+            finalPrompt,
+            context.contexts,
+            question,
+            sessionId,
+            chat
+          ),
           this.getSources(question, context),
         ]);
       } else {
@@ -348,15 +406,16 @@ class PineconeService {
   async callPredict(text, task, title = "") {
     try {
       let instances;
-      if (task==="RETRIEVAL_DOCUMENT" && title) {
+      if (task === "RETRIEVAL_DOCUMENT" && title) {
         instances = text
           .split(";")
-          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
+          .map((e) =>
+            helpers.toValue({ content: e, taskType: task, title: title })
+          );
         instances = text
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task }));
-      }
-      else {
+      } else {
         instances = text
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task }));
@@ -399,10 +458,7 @@ class PineconeService {
   }
   async directAnswer(finalPrompt, context, question, chat) {
     const newPrompt = ChatPromptTemplate.fromMessages([
-      [
-        "system",
-        prompt,
-      ],
+      ["system", prompt],
       new MessagesPlaceholder("chat_history"),
       ["user", "{input}"],
       // new MessagesPlaceholder("agent_scratchpad"),
@@ -411,12 +467,12 @@ class PineconeService {
       temperature: 0,
       model: "gemini-1.5-flash",
     });
-    let newChat = chat
-    if(!newChat) {
+    let newChat = chat;
+    if (!newChat) {
       newChat = new Chat({
         sessionId: new ObjectId().toString(),
-      })
-      await newChat.save()
+      });
+      await newChat.save();
     }
     const chatHistory = new MongoDBChatMessageHistory({
       collection: collection,
@@ -424,19 +480,27 @@ class PineconeService {
     });
     const existingMemory = new BufferMemory({
       chatHistory: chatHistory,
-      returnMessages: true, memoryKey: "chat_history"
+      returnMessages: true,
+      memoryKey: "chat_history",
     });
-    console.log("Messages", await chatHistory.getMessages())
-    const llmChain = new ConversationChain({ llm: model, memory: existingMemory, prompt: newPrompt });
-    const response = await llmChain.call({input: finalPrompt +
-      "\n" +
-      `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`});
+    console.log("Messages", await chatHistory.getMessages());
+    const llmChain = new ConversationChain({
+      llm: model,
+      memory: existingMemory,
+      prompt: newPrompt,
+    });
+    const response = await llmChain.call({
+      input:
+        finalPrompt +
+        "\n" +
+        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`,
+    });
     newChat.chatHistory.push({
       question: question,
-      answer: response.response
-    })
-    await newChat.save()
- 
+      answer: response.response,
+    });
+    await newChat.save();
+
     // const response = await model.invoke(
     //   finalPrompt +
     //     "\n" +
