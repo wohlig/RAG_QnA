@@ -274,9 +274,20 @@ class PineconeService {
       throw error;
     }
   }
-  async askQna(question, prompt, sessionId) {
+  async askQna(question, prompt, sessionId, chatId) {
     try {
       let finalQuestion = question;
+      let chat = await Chat.findOne({sessionId: chatId})
+     if(chat) {
+       console.log("Making Decision")
+       const decision = await this.makeDecisionFromGemini(
+         question, chat
+       );
+       if (decision.answer == "Yes") {
+         finalQuestion = decision.newQuestion;
+       }
+     }
+
       const versionLayer = await this.makeDecisionAboutVersionFromGemini(
         finalQuestion
       );
