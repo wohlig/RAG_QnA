@@ -7,7 +7,7 @@ fs.writeFileSync("./vertexkeys.json", keys2);
 const { GoogleGenerativeAI, FunctionDeclarationSchemaType } = require("@google/generative-ai");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence } = require("@langchain/core/runnables");
-const { ChatPromptTemplate } = require("@langchain/core/prompts");
+const { ChatPromptTemplate, MessagesPlaceholder } = require("@langchain/core/prompts");
 
 // Access your API key as an environment variable
 // const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
@@ -33,6 +33,8 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
+const Chat = require("../../mongooseSchema/ONDC_Chat");
+
 const safetySettings = [
   {
       "category": "HARM_CATEGORY_HARASSMENT",
@@ -52,6 +54,10 @@ const safetySettings = [
   },
 ]
 const { ChatVertexAI } = require("@langchain/google-vertexai");
+const { MongoClient, ObjectId } = require("mongodb");
+const { MongoDBChatMessageHistory } = require("@langchain/mongodb");
+const { ConversationChain } = require("langchain/chains");
+const { BufferMemory } = require("langchain/memory");
 const { z } = require("zod");
 const model = new ChatVertexAI({
   authOptions: {
@@ -63,6 +69,26 @@ const model = new ChatVertexAI({
   safetySettings: safetySettings
 });
 const pdf_parse = require("pdf-parse");
+
+let collection;
+(async () => {
+ let hasRun = false;
+ if (!hasRun) {
+   const client = new MongoClient(process.env.MONGO_URL || "", {
+     driverInfo: { name: "langchainjs" },
+   });
+   try {
+     await client.connect();
+     collection = client
+       .db(process.env.DB_NAME)
+       .collection(process.env.COLLECTION_NAME);
+     hasRun = true;
+   } catch (error) {
+     console.error("Error connecting to MongoDB:", error);
+   }
+ }
+})();
+
 
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
@@ -358,6 +384,14 @@ class PineconeService {
   async askQna(question, prompt, sessionId, chatId) {
     try {
       let finalQuestion = question;
+      let chat = await Chat.findOne({ sessionId: chatId });
+      if (chat) {
+        const decision = await this.makeDecisionFromGemini(question, chat);
+        if (decision.answer == "Yes") {
+          finalQuestion = decision.newQuestion;
+        }
+      }
+
       const versionLayer = await this.makeDecisionAboutVersionFromGemini(
         finalQuestion
       );
@@ -394,7 +428,7 @@ class PineconeService {
         ]);
       } else {
         [answerStream, sourcesArray] = await Promise.all([
-          this.directAnswer(finalPrompt, context.contexts, question),
+          this.directAnswer(finalPrompt, context.contexts, question, chat),
           this.getSources(question, context),
         ]);
       }
