@@ -11,7 +11,10 @@ const { v4: uuidv4 } = require("uuid");
 const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence } = require("@langchain/core/runnables");
-const { ChatPromptTemplate } = require("@langchain/core/prompts");
+const {
+  ChatPromptTemplate,
+  MessagesPlaceholder,
+} = require("@langchain/core/prompts");
 const { BigQuery } = require("@google-cloud/bigquery");
 const {
   RecursiveUrlLoader,
