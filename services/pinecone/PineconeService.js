@@ -35,7 +35,7 @@ const parameters = helpers.toValue({
 });
 const chatHistoryONDC = []
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory")
-const { HumanMessage, AIMessage } = require("langchain/schema")
+const { HumanMessage, AIMessage } = require("@langchain/core/messages")
 const safetySettings = [
   {
       "category": "HARM_CATEGORY_HARASSMENT",
@@ -333,7 +333,7 @@ class PineconeService {
           "the new framed question based on the question asked and the chat history provided"
         ),
     });
-    let chatHistory = chatHistoryONDC.slice(-3)
+    let chatHistory = chatHistoryONDC.slice(-6)
     console.log("ChatHistory", chatHistory.length)
     chatHistory = JSON.stringify(chatHistory)
     const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
@@ -360,6 +360,10 @@ class PineconeService {
   async askQna(question, prompt, sessionId) {
     try {
       let finalQuestion = question;
+      const decision = await this.makeDecisionFromGemini(question);
+      if (decision.answer == "Yes") {
+        finalQuestion = decision.newQuestion;
+      }
       const versionLayer = await this.makeDecisionAboutVersionFromGemini(
         finalQuestion
       );
@@ -448,7 +452,7 @@ class PineconeService {
       throw error;
     }
   }
-  async streamAnswer(finalPrompt, context, question, sessionId, chat) {
+  async streamAnswer(finalPrompt, context, question, sessionId) {
     console.log("Stream Answer")
     const newPrompt = ChatPromptTemplate.fromMessages([
       ["system", finalPrompt],
@@ -456,7 +460,7 @@ class PineconeService {
       ["user", "{input}"],
       // new MessagesPlaceholder("agent_scratchpad"),
     ]);
-    const chatHistory = new ChatMessageHistory(chatHistoryONDC)
+    const chatHistory = new ChatMessageHistory(chatHistoryONDC.slice(-6))
     const existingMemory = new BufferMemory({
       chatHistory: chatHistory,
       returnMessages: true,
