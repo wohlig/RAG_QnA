@@ -188,11 +188,128 @@ class PineconeService {
     );
   }
 
-  async getRelevantContextsBigQuery(question, sourcesArray, documentName) {
+  async createQuestEmbeddings(rows, sessionId) {
+  
+    for (const row of rows) {
+      console.log("rowasddsa", row)
+      try {
+        const splitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 5000,
+          chunkOverlap: 500,
+        });
+        const docs = await splitter.createDocuments([row.question]);
+        docs.forEach((doc) => {
+          doc.id = uuidv4();
+        });
+      for (let i = 0; i < docs.length; i += 1) {
+      const i_end = Math.min(docs.length, i + 1);
+      const meta_batch = docs.slice(i, i_end);
+      const embeddings = await this.callPredictForQues(row.question, 'QUESTION_ANSWERING');
+  
+      const rows = meta_batch.map((doc, index) => ({
+        id: doc.id,
+        embedding: embeddings, 
+        questions: row.question,
+        feedback: 'positive'
+      }));
+        await bigquery
+          .dataset("ondc_dataset")
+          .table("ondc_quest_emb")
+          .insert(rows);
+        console.log("Successfully uploaded");
+    }
+      } catch (error) {
+        console.error("Error inserting rows into BigQuery:", error);
+        throw error;
+      }
+    }
+  }
+  
+
+  async callPredictForQues(text, task, title = '') {
+    console.log("task", task)
+    try {
+      console.log('title>>>>>', title)
+      console.log("TEXTTTTT", text)
+      let instances
+      if (task === 'RETRIEVAL_DOCUMENT' && title) {
+        instances = text
+          .split(';')
+          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }))
+        instances = text
+          .split(';')
+          .map((e) => helpers.toValue({ content: e, taskType: task }))
+      } else {
+        instances = text
+          .split(';')
+          .map((e) => helpers.toValue({ content: e, taskType: task }))
+      }
+      const request = { endpoint, instances, parameters }
+      const client = new PredictionServiceClient(clientOptions)
+      const [response] = await client.predict(request)
+      const predictions = response.predictions
+
+      for (const prediction of predictions) {
+        const embeddings = prediction.structValue.fields.embeddings
+        const values = embeddings.structValue.fields.values.listValue.values
+      }
+      const embeddings = predictions[0].structValue.fields.embeddings
+      const values = embeddings.structValue.fields.values.listValue.values
+      console.log('Embeddings creaetd')
+      return values.map((value) => value.numberValue)
+    } catch (error) {
+      console.error('Error calling predict:', error)
+      throw error
+    }
+  }
+
+  async getRelevantQuestionsBigQuery(question) {
     const questionEmbedding = await this.callPredict(
       question.replace(/;/g, ""),
       "QUESTION_ANSWERING"
     );
+    const embeddingString = `[${questionEmbedding.join(", ")}]`;
+    let query = `SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
+    FROM
+    VECTOR_SEARCH(
+      TABLE ondc_dataset.ondc_quest_emb,
+      'embedding',
+        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_quest_emb),
+      top_k => 3,
+      distance_type => 'COSINE'
+    )`;
+    try {
+      let newQuestion = ''
+      let newEmbedding = []
+      const [rows] = await bigquery.query({ query });
+
+      for (const row of rows) {
+        if (row.distance < 0.1) {
+          newQuestion = question;
+          newEmbedding = row.embedding
+          break; 
+        }
+      }
+      if(newQuestion && newEmbedding) {
+        return {
+          requestion: newQuestion,
+          embedding: newEmbedding
+        }
+      }
+      else {
+        return {
+          requestion: question,
+          embedding: questionEmbedding
+        }
+      }
+    } catch (error) {
+      console.error("Error querying BigQuery:", error);
+      throw error;
+    }
+}
+
+  async getRelevantContextsBigQuery(sourcesArray, documentName, embedding) {
+    const questionEmbedding = embedding
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
     const sourcesArrayInString = `(${sourcesArray
       .map((source) => `'${source}'`)
@@ -338,24 +455,32 @@ class PineconeService {
         documentName = versionLayer.documentName;
         finalQuestion = versionLayer.newQuestion;
       }
-      const context = await this.getRelevantContextsBigQuery(
+      const {
+        requestion,
+        embedding
+      } = await this.getRelevantQuestionsBigQuery(
         finalQuestion,
         oldVersionArray,
         documentName
       );
+      const context =  await this.getRelevantContextsBigQuery(
+        oldVersionArray,
+        documentName,
+        embedding
+      );
       // const context = await this.getRelevantContextsBigQuery(question);
-      let finalPrompt = await this.getPrompt(finalQuestion, prompt);
+      let finalPrompt = await this.getPrompt(requestion, prompt);
       var answerStream;
       var sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(finalPrompt, context.contexts, question, sessionId),
-          this.getSources(question, context),
+          this.streamAnswer(finalPrompt, context.contexts, requestion, sessionId),
+          this.getSources(requestion, context),
         ]);
       } else {
         [answerStream, sourcesArray] = await Promise.all([
-          this.directAnswer(finalPrompt, context.contexts, question),
-          this.getSources(question, context),
+          this.directAnswer(finalPrompt, context.contexts, requestion),
+          this.getSources(requestion, context),
         ]);
       }
 
