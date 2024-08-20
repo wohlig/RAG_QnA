@@ -356,16 +356,18 @@ class PineconeService {
           "the new framed question based on the question asked and the chat history provided"
         ),
     });
+    let chatHistory = 
+      chat && chat.chatHistory && chat.chatHistory.length > 0
+        ? chat.chatHistory.slice(-3)
+        : []
+    console.log("ChatHistory", chatHistory.length)
+    chatHistory = JSON.stringify(chatHistory)
     const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
     const chain = RunnableSequence.from([
       ChatPromptTemplate.fromTemplate(
         `Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
-    Question: ${question}
-    Chat History (List of all previous questions and their answers): ${JSON.stringify(
-      chat && chat.chatHistory && chat.chatHistory.length > 0
-        ? chat.chatHistory[chat.chatHistory.length - 1]
-        : []
-    )}
+    Question: {question}
+    Chat History (List of all previous questions and their answers): {chatHistory}
         Format Instructions: {format_instructions}
         `
       ),
@@ -375,15 +377,16 @@ class PineconeService {
     const response = await chain.invoke({
       question: question,
       format_instructions: parser.getFormatInstructions(),
+      chatHistory: chatHistory,
     });
 
     console.log(response);
     return response;
   }
-  async askQna(question, prompt, sessionId, chatId) {
+  async askQna(question, prompt, sessionId) {
     try {
       let finalQuestion = question;
-      let chat = await Chat.findOne({ sessionId: chatId });
+      let chat = await Chat.findOne({ sessionId: sessionId });
       if (chat) {
         const decision = await this.makeDecisionFromGemini(question, chat);
         if (decision.answer == "Yes") {
@@ -422,7 +425,7 @@ class PineconeService {
       var sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(finalPrompt, context.contexts, question, sessionId),
+          this.streamAnswer(finalPrompt, context.contexts, question, sessionId, chat),
           this.getSources(question, context),
         ]);
       } else {
@@ -479,21 +482,62 @@ class PineconeService {
       throw error;
     }
   }
-  async streamAnswer(finalPrompt, context, question, sessionId) {
-    const answerStream = await model.stream(
-      finalPrompt +
+  async streamAnswer(finalPrompt, context, question, sessionId, chat) {
+    console.log("Stream Answer")
+    const newPrompt = ChatPromptTemplate.fromMessages([
+      ["system", finalPrompt],
+      new MessagesPlaceholder("chat_history"),
+      ["user", "{input}"],
+      // new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-flash",
+    });
+    let newChat = chat;
+    if (!newChat) {
+      newChat = new Chat({
+        sessionId: sessionId,
+      });
+      await newChat.save();
+    }
+    const chatHistory = new MongoDBChatMessageHistory({
+      collection: collection,
+      sessionId: newChat.sessionId,
+    });
+    console.log("This chat history", chatHistory)
+    const existingMemory = new BufferMemory({
+      chatHistory: chatHistory,
+      returnMessages: true,
+      memoryKey: "chat_history",
+    });
+    console.log("Messages", await chatHistory.getMessages());
+    const llmChain = new ConversationChain({
+      llm: model,
+      memory: existingMemory,
+      prompt: newPrompt,
+    });
+    const responseStream = await llmChain.stream({
+      input:
+        finalPrompt +
         "\n" +
-        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
-    );
+        `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
+    });
     let finalResponse = "";
     if (sessionId) {
-      for await (const response of answerStream) {
-        finalResponse += response.content;
-        console.log("response", response.content);
-        io.to(sessionId).emit("response", response.content);
+      for await (const response of responseStream) {
+        // console.log("This is response", response)
+        finalResponse += response.response;
+        console.log("response", response.response);
+        io.to(sessionId).emit("response", response.response);
       }
       console.log("Done");
     }
+    newChat.chatHistory.push({
+        question: question,
+        answer: finalResponse,
+      });
+      await newChat.save();
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
@@ -535,7 +579,7 @@ class PineconeService {
       input:
         finalPrompt +
         "\n" +
-        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`,
+        `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
     });
     newChat.chatHistory.push({
       question: question,
