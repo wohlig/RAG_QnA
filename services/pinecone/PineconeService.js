@@ -448,24 +448,67 @@ class PineconeService {
       throw error;
     }
   }
-  async streamAnswer(finalPrompt, context, question, sessionId) {
-    const answerStream = await model.stream(
-      finalPrompt +
+  async streamAnswer(finalPrompt, context, question, sessionId, chat) {
+    console.log("Stream Answer")
+    const newPrompt = ChatPromptTemplate.fromMessages([
+      ["system", finalPrompt],
+      new MessagesPlaceholder("chat_history"),
+      ["user", "{input}"],
+      // new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+    const chatHistory = new ChatMessageHistory(chatHistoryONDC)
+    const existingMemory = new BufferMemory({
+      chatHistory: chatHistory,
+      returnMessages: true,
+      memoryKey: "chat_history",
+    });
+    console.log("Messages", await chatHistory.getMessages());
+    const llmChain = new ConversationChain({
+      llm: model,
+      memory: existingMemory,
+      prompt: newPrompt,
+    });
+    const responseStream = await llmChain.stream({
+      input:
+        finalPrompt +
         "\n" +
-        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
-    );
+        `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
+    });
     let finalResponse = "";
     if (sessionId) {
-      for await (const response of answerStream) {
-        finalResponse += response.content;
-        console.log("response", response.content);
-        io.to(sessionId).emit("response", response.content);
+      for await (const response of responseStream) {
+        // console.log("This is response", response)
+        finalResponse += response.response;
+        console.log("response", response.response);
+        io.to(sessionId).emit("response", response.response);
       }
       console.log("Done");
     }
+    chatHistoryONDC.push(
+        new HumanMessage(question),
+        new AIMessage(finalResponse)
+      );
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
+  // async streamAnswer(finalPrompt, context, question, sessionId) {
+  //   const answerStream = await model.stream(
+  //     finalPrompt +
+  //       "\n" +
+  //       `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
+  //   );
+  //   let finalResponse = "";
+  //   if (sessionId) {
+  //     for await (const response of answerStream) {
+  //       finalResponse += response.content;
+  //       console.log("response", response.content);
+  //       io.to(sessionId).emit("response", response.content);
+  //     }
+  //     console.log("Done");
+  //   }
+  //   console.log("finalResponse", finalResponse);
+  //   return finalResponse;
+  // }
   async directAnswer(finalPrompt, context, question) {
     console.log("Direct Answer")
     const response = await model.invoke(
