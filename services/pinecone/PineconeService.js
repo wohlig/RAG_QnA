@@ -89,6 +89,39 @@ let collection;
  }
 })();
 
+const pg = require("pg");
+
+const { PostgresChatMessageHistory } = require("@langchain/community/stores/message/postgres");
+const { RunnableWithMessageHistory } = require("@langchain/core/runnables");
+const { StringOutputParser } = require("@langchain/core/output_parsers");
+const { Sequelize } = require('sequelize');
+const sequelize = new Sequelize('ondc_chat', 'postgres', 'ondc123', {
+  host: '34.100.239.166',
+  dialect: 'postgres',
+  dialectOptions: {
+    ssl: {
+      rejectUnauthorized: false // Allow self-signed certificates (optional)
+    }
+  }
+});
+// const sequelize = new Sequelize('postgres://postgres:ondc123@34.100.239.166:5432/ondc_chat');
+try {
+  (async () => {
+    await sequelize.authenticate();
+    console.log('Sequelize Authenticated');
+  })()
+} catch (error) {
+  console.error('Unable to connect to the database:', error);
+}
+
+const poolConfig = {
+  host: "34.100.239.166",
+  port: 5432,
+  user: "postgres",
+  password: "ondc123",
+  database: "ondc_chat",
+};
+const pool = new pg.Pool(poolConfig);
 
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
@@ -501,8 +534,8 @@ class PineconeService {
       });
       await newChat.save();
     }
-    const chatHistory = new MongoDBChatMessageHistory({
-      collection: collection,
+    const chatHistory = new PostgresChatMessageHistory({
+      pool: pool,
       sessionId: newChat.sessionId,
     });
     console.log("This chat history", chatHistory)
@@ -541,6 +574,65 @@ class PineconeService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
+  // async streamAnswer(finalPrompt, context, question, sessionId, chat) {
+  //   console.log("Stream Answer")
+  //   const newPrompt = ChatPromptTemplate.fromMessages([
+  //     ["system", finalPrompt],
+  //     new MessagesPlaceholder("chat_history"),
+  //     ["user", "{input}"],
+  //     // new MessagesPlaceholder("agent_scratchpad"),
+  //   ]);
+  //   const model = new ChatVertexAI({
+  //     temperature: 0,
+  //     model: "gemini-1.5-flash",
+  //   });
+  //   let newChat = chat;
+  //   if (!newChat) {
+  //     newChat = new Chat({
+  //       sessionId: sessionId,
+  //     });
+  //     await newChat.save();
+  //   }
+  //   const chatHistory = new MongoDBChatMessageHistory({
+  //     collection: collection,
+  //     sessionId: newChat.sessionId,
+  //   });
+  //   console.log("This chat history", chatHistory)
+  //   const existingMemory = new BufferMemory({
+  //     chatHistory: chatHistory,
+  //     returnMessages: true,
+  //     memoryKey: "chat_history",
+  //   });
+  //   console.log("Messages", await chatHistory.getMessages());
+  //   const llmChain = new ConversationChain({
+  //     llm: model,
+  //     memory: existingMemory,
+  //     prompt: newPrompt,
+  //   });
+  //   const responseStream = await llmChain.stream({
+  //     input:
+  //       finalPrompt +
+  //       "\n" +
+  //       `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
+  //   });
+  //   let finalResponse = "";
+  //   if (sessionId) {
+  //     for await (const response of responseStream) {
+  //       // console.log("This is response", response)
+  //       finalResponse += response.response;
+  //       console.log("response", response.response);
+  //       io.to(sessionId).emit("response", response.response);
+  //     }
+  //     console.log("Done");
+  //   }
+  //   newChat.chatHistory.push({
+  //       question: question,
+  //       answer: finalResponse,
+  //     });
+  //     await newChat.save();
+  //   console.log("finalResponse", finalResponse);
+  //   return finalResponse;
+  // }
   async directAnswer(finalPrompt, context, question, chat) {
     console.log("Direct Answer")
     const newPrompt = ChatPromptTemplate.fromMessages([
