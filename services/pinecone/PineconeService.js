@@ -454,6 +454,7 @@ class PineconeService {
   }
   async streamAnswer(finalPrompt, context, question, sessionId) {
     console.log("Stream Answer")
+    console.log("Messages", chatHistoryONDC)
     const newPrompt = ChatPromptTemplate.fromMessages([
       ["system", finalPrompt],
       new MessagesPlaceholder("chat_history"),
