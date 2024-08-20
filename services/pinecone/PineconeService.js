@@ -34,6 +34,7 @@ const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
 const chatHistoryONDC = []
+const chatHistoryDummy = []
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory")
 const { HumanMessage, AIMessage } = require("@langchain/core/messages")
 const { ConversationChain } = require("langchain/chains");
@@ -334,7 +335,7 @@ class PineconeService {
           "the new framed question based on the question asked and the chat history provided"
         ),
     });
-    let chatHistory = chatHistoryONDC.slice(-6)
+    let chatHistory = chatHistoryDummy.slice(-3)
     console.log("ChatHistory", chatHistory.length)
     chatHistory = JSON.stringify(chatHistory)
     const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
@@ -396,13 +397,13 @@ class PineconeService {
       var sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(finalPrompt, context.contexts, question, sessionId),
-          this.getSources(question, context),
+          this.streamAnswer(finalPrompt, context.contexts, finalQuestion, sessionId),
+          this.getSources(finalQuestion, context),
         ]);
       } else {
         [answerStream, sourcesArray] = await Promise.all([
-          this.directAnswer(finalPrompt, context.contexts, question),
-          this.getSources(question, context),
+          this.directAnswer(finalPrompt, context.contexts, finalQuestion),
+          this.getSources(finalQuestion, context),
         ]);
       }
 
@@ -454,7 +455,7 @@ class PineconeService {
     }
   }
   async streamAnswer(finalPrompt, context, question, sessionId) {
-    console.log("Stream Answer")
+    console.log("Stream Answer", question)
     const newPrompt = ChatPromptTemplate.fromMessages([
       ["system", finalPrompt],
       new MessagesPlaceholder("chat_history"),
@@ -493,6 +494,10 @@ class PineconeService {
         new HumanMessage(question),
         new AIMessage(finalResponse)
       );
+      chatHistoryDummy.push({
+        question: question,
+        answer: finalResponse
+      })
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
