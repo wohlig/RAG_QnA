@@ -7,7 +7,7 @@ fs.writeFileSync("./vertexkeys.json", keys2);
 const { GoogleGenerativeAI, FunctionDeclarationSchemaType } = require("@google/generative-ai");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence } = require("@langchain/core/runnables");
-const { ChatPromptTemplate } = require("@langchain/core/prompts");
+const { ChatPromptTemplate, MessagesPlaceholder } = require("@langchain/core/prompts");
 
 // Access your API key as an environment variable
 // const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
