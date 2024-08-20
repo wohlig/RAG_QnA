@@ -33,6 +33,9 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
+const { HumanMessage, AIMessage } = require("@langchain/core/messages")
+const { BufferMemory } = require("langchain/memory")
+const memory = new BufferMemory();
 const safetySettings = [
   {
       "category": "HARM_CATEGORY_HARASSMENT",
@@ -448,6 +451,7 @@ class PineconeService {
   }
   async streamAnswer(finalPrompt, context, question, sessionId) {
     console.log("Streaming answer")
+    console.log("Messages", chatHistoryONDC)
     const rephrasedQuestion = await this.makeDecisionFromGemini(question)
     if(rephrasedQuestion.answer == 'Yes') {
       question = rephrasedQuestion.newQuestion
@@ -466,6 +470,10 @@ class PineconeService {
       }
       console.log("Done");
     }
+    chatHistoryONDC.push({
+      question: question,
+      answer: finalResponse
+    })
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
