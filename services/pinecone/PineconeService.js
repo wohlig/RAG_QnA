@@ -372,6 +372,8 @@ class PineconeService {
           return {
             message:
               "Sorry, I couldn't find a suitable answer to your question.",
+            requetion: '',
+            embedding: [],
           };
         }
       }
