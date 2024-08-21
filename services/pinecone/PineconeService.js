@@ -493,39 +493,54 @@ class PineconeService {
   }
     async makeDecisionFromGemini(question) {
     console.log("Rephrasing Question");
+
     const model = new ChatVertexAI({
-      temperature: 0,
-      model: "gemini-1.5-pro",
-      safetySettings: safetySettings,
+        temperature: 0,
+        model: "gemini-1.5-pro",
+        safetySettings: safetySettings,
     });
+
     const structuredSchema = z.object({
-      answer: z.string().describe("'Yes' or 'No'"),
-      newQuestion: z
-        .string()
-        .describe(
-          "the new framed question based on the question asked and the chat history provided"
-        ),
+        answer: z.string().describe("'Yes' or 'No'"),
+        newQuestion: z
+            .string()
+            .describe(
+                "the new framed question based on the question asked and the chat history provided"
+            ),
     });
-    let chatHistory = chatHistoryDummy.slice(-3)
-    console.log("ChatHistory", chatHistory.length)
-    chatHistory = JSON.stringify(chatHistory)
+
+    let chatHistory = chatHistoryDummy.slice(-3);
+    console.log("ChatHistory", chatHistory.length);
+    chatHistory = JSON.stringify(chatHistory);
+
     const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
     const chain = RunnableSequence.from([
-      ChatPromptTemplate.fromTemplate(
-        `Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
-    Question: {question}
-    Chat History (List of all previous questions and their answers): {chatHistory}
-        Format Instructions: {format_instructions}
-        `
-      ),
-      model,
-      parser,
+        ChatPromptTemplate.fromTemplate(
+            `Analyze the given question and decide if it requires context from the previous conversation. Respond with "Yes" only if the question is clearly related to the previous conversation or requires the context to be understood correctly. If the question is standalone or unrelated, respond with "No". If 'Yes', rephrase the question using necessary context from the chat history and assign the 'newQuestion' field with this new framed question. Ensure the rephrased question is concise and directly incorporates relevant context without altering the original intent. If 'No', assign the 'newQuestion' field as an empty string ('').
+            Question: {question}
+            Chat History (Last three interactions): {chatHistory}
+            Format Instructions: {format_instructions}`
+        ),
+        model,
+        parser,
     ]);
+
     const response = await chain.invoke({
-      question: question,
-      format_instructions: parser.getFormatInstructions(),
-      chatHistory: chatHistory,
+        question: question,
+        format_instructions: parser.getFormatInstructions(),
+        chatHistory: chatHistory,
     });
+
+    // Post-processing validation
+    if (response.answer === "Yes" && response.newQuestion.trim() !== "") {
+        // Basic validation to ensure the new question is well-formed
+        if (response.newQuestion.includes("{") || response.newQuestion.includes("}")) {
+            console.error("The rephrased question contains invalid characters. Reverting to original question.");
+            response.newQuestion = question; // Use the original question if the rephrased one is problematic
+        }
+    } else if (response.answer === "No") {
+        response.newQuestion = ""; // Ensure the newQuestion field is empty
+    }
 
     console.log(response);
     return response;
