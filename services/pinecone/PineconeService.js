@@ -33,6 +33,7 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
+const { PDFLoader } = require("@langchain/community/document_loaders/fs/pdf")
 const safetySettings = [
   {
       "category": "HARM_CATEGORY_HARASSMENT",
@@ -242,6 +243,15 @@ class PineconeService {
       console.error("Error querying BigQuery:", error);
       throw error;
     }
+  }
+
+  async extractPdfData() {
+    console.log(__dirname)
+    const pdfPath = `${__dirname}/FIS (FAQs).pdf`;
+
+    const loader = new PDFLoader(pdfPath);
+    const docs = await loader.load();
+    return docs[0]
   }
 
   async getPrompt(question, promptBody) {

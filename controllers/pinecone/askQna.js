@@ -36,8 +36,9 @@ const validation = (req, res, next) => {
 }
 const askQna = async (req, res) => {
   try {
-    const result = await PineconeService.askQna(req.body.question, req.body.prompt, req.body.sessionId)
-    result.question = req.body.question
+    // const result = await PineconeService.askQna(req.body.question, req.body.prompt, req.body.sessionId)
+    // result.question = req.body.question
+    const result = await PineconeService.extractPdfData()
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
     console.log('askQna Error', err)
