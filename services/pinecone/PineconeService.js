@@ -589,7 +589,7 @@ class PineconeService {
             let sourcesArray;
             if (sessionId) {
                 [answerStream, sourcesArray] = await Promise.all([
-                    this.streamAnswer(finalPrompt, context.contexts, requestion, sessionId),
+                    this.streamAnswer(finalPrompt, context.contexts, requestion, sessionId, finalQuestion),
                     this.getSources(requestion, context),
                 ]);
             } else {
@@ -647,7 +647,7 @@ class PineconeService {
       throw error;
     }
   }
-  async streamAnswer(finalPrompt, context, question, sessionId) {
+  async streamAnswer(finalPrompt, context, question, sessionId, questionToPushInChatHistory) {
     console.log("Stream Answer", question)
     const newPrompt = ChatPromptTemplate.fromMessages([
       ["system", finalPrompt],
