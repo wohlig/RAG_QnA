@@ -596,7 +596,7 @@ class PineconeService {
         documentName,
         embedding
       );
-      let finalPrompt = this.getPrompt(requestion, prompt);
+      let finalPrompt = await this.getPrompt(requestion, prompt);
       let answerStream;
       let sourcesArray;
       if (sessionId) {
