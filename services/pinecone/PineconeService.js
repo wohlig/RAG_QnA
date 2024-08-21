@@ -512,6 +512,7 @@ class PineconeService {
     });
 
     let chatHistory = chatHistoryDummy.slice(-3);
+    let response
     if (chatHistory.length > 0) { 
       console.log(
         "Found chat history, making decision about rephrasing question"
@@ -528,7 +529,7 @@ class PineconeService {
         parser,
       ]);
 
-      const response = await chain.invoke({
+      response = await chain.invoke({
         question: question,
         format_instructions: parser.getFormatInstructions(),
         chatHistory: chatHistory,
