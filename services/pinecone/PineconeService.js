@@ -4,10 +4,6 @@ const keys = process.env.GOOGLE_SECRETS;
 fs.writeFileSync(path.join(__dirname, "keys.json"), keys);
 const keys2 = process.env.GOOGLE_VERTEX_SECRETS;
 fs.writeFileSync("./vertexkeys.json", keys2);
-const {
-  GoogleGenerativeAI,
-  FunctionDeclarationSchemaType,
-} = require("@google/generative-ai");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence } = require("@langchain/core/runnables");
 const {
@@ -25,7 +21,6 @@ const { BigQuery } = require("@google-cloud/bigquery");
 const {
   RecursiveUrlLoader,
 } = require("@langchain/community/document_loaders/web/recursive_url");
-const RagDocs = require("../../mongooseSchema/RagDocs");
 
 const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, "keys.json"),
@@ -357,32 +352,29 @@ class PineconeService {
       distance_type => 'COSINE'
     )`;
     try {
-      let newQuestion = "";
-      let newEmbedding = [];
+      let newQuestion = question;
+      let newEmbedding = questionEmbedding;
+      const feedback = "positive";
       const [rows] = await bigquery.query({ query });
 
       for (const row of rows) {
         if (row.feedback === "positive" && row.distance < 0.1) {
-          return {
-            requestion: row.question,
-            embedding: row.embedding,
-          };
+          console.log("Found similar question", row.question);
+          requestion = row.question;
+          newEmbedding = row.embedding;
+          break;
         }
         if (row.feedback === "negative" && row.distance < 0.1) {
-          return {
-            message:
-              "Sorry, I couldn't find a suitable answer to your question.",
-            requetion: '',
-            embedding: [],
-          };
+          console.log("Negative feedback found", row.question);
+          feedback = "negative";
+          break;
         }
       }
-      if (newQuestion && newEmbedding) {
-        return {
-          requestion: newQuestion,
-          embedding: newEmbedding,
-        };
-      }
+      return {
+        requestion: newQuestion,
+        embedding: newEmbedding,
+        feedback: feedback,
+      };
     } catch (error) {
       console.error("Error querying BigQuery:", error);
       throw error;
@@ -421,20 +413,10 @@ class PineconeService {
     }
     try {
       const [rows] = await bigquery.query({ query });
-      // console.log("Rows>>>>", rows);
       const contexts = rows.map((row) => row.context);
-      // const allSources = rows.map((row) => row.source);
 
-      // const finalContext = contexts.join(" ");
-      // const uniqueSources = [...new Set(allSources)];
-      // const finalSources = uniqueSources.join(", ");
-      // console.log("Data>>>>>>>>", {
-      //   contexts: finalContext,
-      //   sources: finalSources,
-      // });
       return {
         contexts: contexts,
-        // sources: finalSources,
       };
     } catch (error) {
       console.error("Error querying BigQuery:", error);
@@ -506,7 +488,7 @@ class PineconeService {
         format_instructions: parser.getFormatInstructions(),
       });
 
-      console.log(response);
+      console.log("Descision about version: ", response);
       return response;
     } catch (error) {
       console.error("Error invoking Gemini model:", error);
@@ -514,62 +496,51 @@ class PineconeService {
     }
   }
   async makeDecisionFromGemini(question) {
-    console.log("Rephrasing Question");
-
     const model = new ChatVertexAI({
-        temperature: 0,
-        model: "gemini-1.5-pro",
-        safetySettings: safetySettings,
+      temperature: 0,
+      model: "gemini-1.5-pro",
+      safetySettings: safetySettings,
     });
 
     const structuredSchema = z.object({
-        answer: z.string().describe("'Yes' or 'No'"),
-        newQuestion: z
-            .string()
-            .describe(
-                "the new framed question based on the question asked and the chat history provided"
-            ),
+      answer: z.string().describe("'Yes' or 'No'"),
+      newQuestion: z
+        .string()
+        .describe(
+          "the new framed question based on the question asked and the chat history provided"
+        ),
     });
 
     let chatHistory = chatHistoryDummy.slice(-3);
-    console.log("ChatHistory", chatHistory.length);
-    chatHistory = JSON.stringify(chatHistory);
-
-    const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
-    const chain = RunnableSequence.from([
-      ChatPromptTemplate.fromTemplate(
-        `Analyze the given question and decide if it requires context from the previous conversation. Respond with "Yes" only if the question is clearly related to the previous conversation or requires the context to be understood correctly. If the question is standalone or unrelated, respond with "No". If 'Yes', rephrase the question using necessary context from the chat history and assign the 'newQuestion' field with this new framed question. Ensure the rephrased question is concise and directly incorporates relevant context without altering the original intent. If 'No', assign the 'newQuestion' field as an empty string ('').
+    if (chatHistory.length > 0) {
+      console.log(
+        "Found chat history, making decision about rephrasing question"
+      );
+      const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
+      const chain = RunnableSequence.from([
+        ChatPromptTemplate.fromTemplate(
+          `Analyze the given question and decide if it requires context from the previous conversation. Respond with "Yes" only if the question is clearly related to the previous conversation or requires the context to be understood correctly. If the question is standalone or unrelated, respond with "No". If 'Yes', rephrase the question using necessary context from the chat history and assign the 'newQuestion' field with this new framed question. Ensure the rephrased question is concise and directly incorporates relevant context without altering the original intent. If 'No', assign the 'newQuestion' field as an empty string ('').
             Question: {question}
             Chat History (Last three interactions): {chatHistory}
             Format Instructions: {format_instructions}`
-      ),
-      model,
-      parser,
-    ]);
+        ),
+        model,
+        parser,
+      ]);
 
-    const response = await chain.invoke({
+      const response = await chain.invoke({
         question: question,
         format_instructions: parser.getFormatInstructions(),
         chatHistory: chatHistory,
-    });
-
-    // Post-processing validation
-    if (response.answer === "Yes" && response.newQuestion.trim() !== "") {
-      // Basic validation to ensure the new question is well-formed
-      if (
-        response.newQuestion.includes("{") ||
-        response.newQuestion.includes("}")
-      ) {
-        console.error(
-          "The rephrased question contains invalid characters. Reverting to original question."
-        );
-        response.newQuestion = question; // Use the original question if the rephrased one is problematic
+      });
+      if (response.answer === "Yes") {
+        console.log("Question is rephrased as: ", response);
       }
-    } else if (response.answer === "No") {
-      response.newQuestion = ""; // Ensure the newQuestion field is empty
+      else {
+        console.log("Question is not rephrased", response);
+        response.newQuestion = ''
+      }
     }
-
-    console.log(response);
     return response;
   }
 
@@ -601,48 +572,52 @@ class PineconeService {
         documentName = versionLayer.documentName;
         finalQuestion = versionLayer.newQuestion;
       }
-      const { requestion, embedding } = await this.getRelevantQuestionsBigQuery(
-        finalQuestion,
-        oldVersionArray,
-        documentName
-      );
-
-      if (requestion && Array.isArray(embedding) && embedding.length > 0) {
-        const context = await this.getRelevantContextsBigQuery(
+      const { requestion, embedding, feedback } =
+        await this.getRelevantQuestionsBigQuery(
+          finalQuestion,
           oldVersionArray,
-          documentName,
-          embedding
+          documentName
         );
-        let finalPrompt = await this.getPrompt(requestion, prompt);
-        let answerStream;
-        let sourcesArray;
-        if (sessionId) {
-          [answerStream, sourcesArray] = await Promise.all([
-            this.streamAnswer(
-              finalPrompt,
-              context.contexts,
-              requestion,
-              sessionId,
-              finalQuestion
-            ),
-            this.getSources(requestion, context),
-          ]);
-        } else {
-          [answerStream, sourcesArray] = await Promise.all([
-            this.directAnswer(finalPrompt, context.contexts, requestion),
-            this.getSources(requestion, context),
-          ]);
-        }
+      if (feedback === "negative") {
         return {
-          answer: answerStream,
-          sources: sourcesArray,
-        };
-      } else {
-        return {
-          answer: "Sorry, I couldn't find a suitable answer to your question.",
-          sources: []
+          message: "Sorry, I am not able to answer this question",
+          sources: [],
         };
       }
+      const context = await this.getRelevantContextsBigQuery(
+        oldVersionArray,
+        documentName,
+        embedding
+      );
+      let finalPrompt = this.getPrompt(requestion, prompt);
+      let answerStream;
+      let sourcesArray;
+      if (sessionId) {
+        [answerStream, sourcesArray] = await Promise.all([
+          this.streamAnswer(
+            finalPrompt,
+            context.contexts,
+            requestion,
+            sessionId,
+            finalQuestion
+          ),
+          this.getSources(requestion, context),
+        ]);
+      } else {
+        [answerStream, sourcesArray] = await Promise.all([
+          this.directAnswer(
+            finalPrompt,
+            context.contexts,
+            requestion,
+            finalQuestion
+          ),
+          this.getSources(requestion, context),
+        ]);
+      }
+      return {
+        answer: answerStream,
+        sources: sourcesArray,
+      };
     } catch (error) {
       console.log("Error in askQna", error);
       return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
@@ -677,16 +652,22 @@ class PineconeService {
       }
       const embeddings = predictions[0].structValue.fields.embeddings;
       const values = embeddings.structValue.fields.values.listValue.values;
-      console.log("Embeddings creaetd");
+      console.log("Embeddings created");
       return values.map((value) => value.numberValue);
     } catch (error) {
       console.error("Error calling predict:", error);
       throw error;
     }
   }
-   
-  async streamAnswer(finalPrompt, context, question, sessionId, questionToPushInChatHistory) {
-    console.log("Stream Answer", question)
+
+  async streamAnswer(
+    finalPrompt,
+    context,
+    question,
+    sessionId,
+    questionToPushInChatHistory
+  ) {
+    console.log("Stream Answer", question);
     const newPrompt = ChatPromptTemplate.fromMessages([
       ["system", finalPrompt],
       new MessagesPlaceholder("chat_history"),
@@ -699,7 +680,6 @@ class PineconeService {
       returnMessages: true,
       memoryKey: "chat_history",
     });
-    console.log("Messages", await chatHistory.getMessages());
     const llmChain = new ConversationChain({
       llm: model,
       memory: existingMemory,
@@ -722,11 +702,11 @@ class PineconeService {
       console.log("Done");
     }
     chatHistoryONDC.push(
-      new HumanMessage(question),
+      new HumanMessage(questionToPushInChatHistory),
       new AIMessage(finalResponse)
     );
     chatHistoryDummy.push({
-      question: question,
+      question: questionToPushInChatHistory,
       answer: finalResponse,
     });
     console.log("finalResponse", finalResponse);
@@ -750,13 +730,26 @@ class PineconeService {
   //   console.log("finalResponse", finalResponse);
   //   return finalResponse;
   // }
-  async directAnswer(finalPrompt, context, question) {
+  async directAnswer(
+    finalPrompt,
+    context,
+    question,
+    questionToPushInChatHistory
+  ) {
     console.log("Direct Answer");
     const response = await model.invoke(
       finalPrompt +
         "\n" +
         `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
     );
+    chatHistoryONDC.push(
+      new HumanMessage(questionToPushInChatHistory),
+      new AIMessage(response.content)
+    );
+    chatHistoryDummy.push({
+      question: questionToPushInChatHistory,
+      answer: response.content,
+    });
     return response.content;
   }
   async getSources(question, context) {
