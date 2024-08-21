@@ -336,12 +336,12 @@ class PineconeService {
         ),
     });
     let chatHistory = chatHistoryDummy.slice(-3)
-    console.log("ChatHistory", chatHistory.length)
+    console.log("ChatHistory", chatHistory)
     chatHistory = JSON.stringify(chatHistory)
     const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
     const chain = RunnableSequence.from([
       ChatPromptTemplate.fromTemplate(
-        `Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
+        `You are given a user's question and a chat history. Your task is to first determine if the user's question depends on any previous question or information provided in the chat history. If the question is dependent on the chat history or a previous question, respond with "Yes" and also return a rephrased version of the question that removes any dependency on the chat history in the 'newQuestion' field, making the question stand-alone. If the question is not dependent on the chat history, respond with "No" and return the 'newQuestion' as an empty string.
     Question: {question}
     Chat History (List of all previous questions and their answers): {chatHistory}
         Format Instructions: {format_instructions}
@@ -350,6 +350,17 @@ class PineconeService {
       model,
       parser,
     ]);
+    // const chain = RunnableSequence.from([
+    //   ChatPromptTemplate.fromTemplate(
+    //     `Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
+    // Question: {question}
+    // Chat History (List of all previous questions and their answers): {chatHistory}
+    //     Format Instructions: {format_instructions}
+    //     `
+    //   ),
+    //   model,
+    //   parser,
+    // ]);
     const response = await chain.invoke({
       question: question,
       format_instructions: parser.getFormatInstructions(),
