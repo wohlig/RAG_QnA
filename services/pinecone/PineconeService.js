@@ -360,7 +360,7 @@ class PineconeService {
       for (const row of rows) {
         if (row.feedback === "positive" && row.distance < 0.1) {
           console.log("Found similar question", row.question);
-          requestion = row.question;
+          newQuestion = row.question;
           newEmbedding = row.embedding;
           break;
         }
