@@ -38,6 +38,7 @@ const askQna = async (req, res) => {
   try {
     const result = await PineconeService.askQna(req.body.question, req.body.prompt, req.body.sessionId)
     result.question = req.body.question
+    console.log('askQna result', result)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
     console.log('askQna Error', err)
