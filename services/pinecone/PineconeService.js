@@ -513,22 +513,26 @@ class PineconeService {
   }
   async makeDecisionFromGemini(question) {
     console.log("Rephrasing Question");
+
     const model = new ChatVertexAI({
-      temperature: 0,
-      model: "gemini-1.5-pro",
-      safetySettings: safetySettings,
+        temperature: 0,
+        model: "gemini-1.5-pro",
+        safetySettings: safetySettings,
     });
+
     const structuredSchema = z.object({
-      answer: z.string().describe("'Yes' or 'No'"),
-      newQuestion: z
-        .string()
-        .describe(
-          "the new framed question based on the question asked and the chat history provided"
-        ),
+        answer: z.string().describe("'Yes' or 'No'"),
+        newQuestion: z
+            .string()
+            .describe(
+                "the new framed question based on the question asked and the chat history provided"
+            ),
     });
-    let chatHistory = chatHistoryDummy.slice(-3)
-    console.log("ChatHistory", chatHistory.length)
-    chatHistory = JSON.stringify(chatHistory)
+
+    let chatHistory = chatHistoryDummy.slice(-3);
+    console.log("ChatHistory", chatHistory.length);
+    chatHistory = JSON.stringify(chatHistory);
+
     const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
     const chain = RunnableSequence.from([
       ChatPromptTemplate.fromTemplate(
@@ -540,10 +544,11 @@ class PineconeService {
       model,
       parser,
     ]);
+
     const response = await chain.invoke({
-      question: question,
-      format_instructions: parser.getFormatInstructions(),
-      chatHistory: chatHistory,
+        question: question,
+        format_instructions: parser.getFormatInstructions(),
+        chatHistory: chatHistory,
     });
 
     // Post-processing validation
