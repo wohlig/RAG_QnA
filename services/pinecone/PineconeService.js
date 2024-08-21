@@ -7,7 +7,7 @@ fs.writeFileSync("./vertexkeys.json", keys2);
 const { GoogleGenerativeAI, FunctionDeclarationSchemaType } = require("@google/generative-ai");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence } = require("@langchain/core/runnables");
-const { ChatPromptTemplate } = require("@langchain/core/prompts");
+const { ChatPromptTemplate, MessagesPlaceholder } = require("@langchain/core/prompts");
 
 // Access your API key as an environment variable
 // const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
@@ -33,6 +33,11 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
+const chatHistoryONDC = []
+const chatHistoryDummy = []
+const { BufferMemory, ChatMessageHistory } = require("langchain/memory")
+const { HumanMessage, AIMessage } = require("@langchain/core/messages")
+const { ConversationChain } = require("langchain/chains");
 const safetySettings = [
   {
       "category": "HARM_CATEGORY_HARASSMENT",
@@ -113,7 +118,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .table("ondc_geminititle_copy")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -217,7 +222,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .table("ondc_geminititle_copy")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -372,9 +377,9 @@ class PineconeService {
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_geminititle,
+                        TABLE ondc_dataset.ondc_geminititle_copy,
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
+                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle_copy),
                         top_k => 20,
                         distance_type => 'COSINE'
                       ) 
@@ -384,9 +389,9 @@ class PineconeService {
       base.source AS source
       FROM 
       VECTOR_SEARCH(
-        TABLE ondc_dataset.ondc_geminititle,
+        TABLE ondc_dataset.ondc_geminititle_copy,
         'embedding',
-          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
+          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle_copy),
         top_k => 20,
         distance_type => 'COSINE'
       )
@@ -486,12 +491,55 @@ class PineconeService {
       throw error;
     }
   }
+    async makeDecisionFromGemini(question) {
+    console.log("Rephrasing Question");
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-pro",
+      safetySettings: safetySettings,
+    });
+    const structuredSchema = z.object({
+      answer: z.string().describe("'Yes' or 'No'"),
+      newQuestion: z
+        .string()
+        .describe(
+          "the new framed question based on the question asked and the chat history provided"
+        ),
+    });
+    let chatHistory = chatHistoryDummy.slice(-3)
+    console.log("ChatHistory", chatHistory.length)
+    chatHistory = JSON.stringify(chatHistory)
+    const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
+    const chain = RunnableSequence.from([
+      ChatPromptTemplate.fromTemplate(
+        `Analyze the given question and respond with "Yes" only if the user's question cannot be answered without referring to the chat history. If the chat history contains terms that are also found in the user's current question, respond with "No". Only when the user  mentions in their question something related to the previous conversation or indicates that the current question is connected to a previous topic, should you respond with "Yes" For all other cases, respond with "No". If 'Yes', analyze the chat history provided to determine the context. Then, rephrase the given question to include the necessary context from the chat history and assign the 'newQuestion' field with this new framed question and make sure the new question is short and to the point and only give the question, no extra information is required. If 'No', assign the 'newQuestion' field as empty string ('').
+    Question: {question}
+    Chat History (List of all previous questions and their answers): {chatHistory}
+        Format Instructions: {format_instructions}
+        `
+      ),
+      model,
+      parser,
+    ]);
+    const response = await chain.invoke({
+      question: question,
+      format_instructions: parser.getFormatInstructions(),
+      chatHistory: chatHistory,
+    });
+
+    console.log(response);
+    return response;
+  }
 
   async askQna(question, prompt, sessionId) {
     try {
         let finalQuestion = question;
+        const decision = await this.makeDecisionFromGemini(question);
+        if (decision.answer == "Yes") {
+          finalQuestion = decision.newQuestion;
+        }
         const versionLayer = await this.makeDecisionAboutVersionFromGemini(finalQuestion);
-
+      
         let documentName;
         let oldVersionArray = [];
 
@@ -585,23 +633,70 @@ class PineconeService {
     }
   }
   async streamAnswer(finalPrompt, context, question, sessionId) {
-    const answerStream = await model.stream(
-      finalPrompt +
+    console.log("Stream Answer", question)
+    const newPrompt = ChatPromptTemplate.fromMessages([
+      ["system", finalPrompt],
+      new MessagesPlaceholder("chat_history"),
+      ["user", "{input}"],
+      // new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+    const chatHistory = new ChatMessageHistory(chatHistoryONDC.slice(-6))
+    const existingMemory = new BufferMemory({
+      chatHistory: chatHistory,
+      returnMessages: true,
+      memoryKey: "chat_history",
+    });
+    console.log("Messages", await chatHistory.getMessages());
+    const llmChain = new ConversationChain({
+      llm: model,
+      memory: existingMemory,
+      prompt: newPrompt,
+    });
+    const responseStream = await llmChain.stream({
+      input:
+        finalPrompt +
         "\n" +
-        `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
-    );
+        `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
+    });
     let finalResponse = "";
     if (sessionId) {
-      for await (const response of answerStream) {
-        finalResponse += response.content;
-        console.log("response", response.content);
-        io.to(sessionId).emit("response", response.content);
+      for await (const response of responseStream) {
+        // console.log("This is response", response)
+        finalResponse += response.response;
+        console.log("response", response.response);
+        io.to(sessionId).emit("response", response.response);
       }
       console.log("Done");
     }
+    chatHistoryONDC.push(
+        new HumanMessage(question),
+        new AIMessage(finalResponse)
+      );
+      chatHistoryDummy.push({
+        question: question,
+        answer: finalResponse
+      })
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
+  // async streamAnswer(finalPrompt, context, question, sessionId) {
+  //   const answerStream = await model.stream(
+  //     finalPrompt +
+  //       "\n" +
+  //       `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
+  //   );
+  //   let finalResponse = "";
+  //   if (sessionId) {
+  //     for await (const response of answerStream) {
+  //       finalResponse += response.content;
+  //       console.log("response", response.content);
+  //       io.to(sessionId).emit("response", response.content);
+  //     }
+  //     console.log("Done");
+  //   }
+  //   console.log("finalResponse", finalResponse);
+  //   return finalResponse;
+  // }
   async directAnswer(finalPrompt, context, question) {
     console.log("Direct Answer")
     const response = await model.invoke(
