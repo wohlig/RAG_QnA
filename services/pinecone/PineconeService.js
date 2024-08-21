@@ -622,7 +622,8 @@ class PineconeService {
               finalPrompt,
               context.contexts,
               requestion,
-              sessionId
+              sessionId,
+              finalQuestion
             ),
             this.getSources(requestion, context),
           ]);
@@ -683,8 +684,9 @@ class PineconeService {
       throw error;
     }
   }
-  async streamAnswer(finalPrompt, context, question, sessionId) {
-    console.log("Stream Answer", question);
+   
+  async streamAnswer(finalPrompt, context, question, sessionId, questionToPushInChatHistory) {
+    console.log("Stream Answer", question)
     const newPrompt = ChatPromptTemplate.fromMessages([
       ["system", finalPrompt],
       new MessagesPlaceholder("chat_history"),
