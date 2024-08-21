@@ -512,7 +512,7 @@ class PineconeService {
     });
 
     let chatHistory = chatHistoryDummy.slice(-3);
-    if (chatHistory.length > 0) {
+    if (chatHistory.length > 0) { 
       console.log(
         "Found chat history, making decision about rephrasing question"
       );
@@ -540,6 +540,12 @@ class PineconeService {
         console.log("Question is not rephrased", response);
         response.newQuestion = ''
       }
+    } else {
+      console.log("No chat history found, skipping decision making");
+      response = {
+        answer: "No",
+        newQuestion: "",
+      };
     }
     return response;
   }
