@@ -126,6 +126,60 @@ class PineconeService {
     return "Completed";
   }
 
+  async pushTextDataToBigQuery () {
+    const texts = [
+      {
+        context: 'The MD and CEO of ONDC is T Koshy',
+        title: 'All About Open Network for Digital Commerce',
+        source: 'https://ondc.org/about-ondc/'
+      }
+    ]
+
+    for (const text of texts) {
+      try {
+        console.log('Processing text from source:', text.source)
+        const title = text.title
+        console.log('title', title)
+        const splitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 5000,
+          chunkOverlap: 500
+        })
+        const docs = await splitter.createDocuments([text.context])
+        docs.forEach((doc) => {
+          doc.id = uuidv4()
+        })
+
+        const batch_size = 100
+        for (let i = 0; i < docs.length; i += batch_size) {
+          const i_end = Math.min(docs.length, i + batch_size)
+          const meta_batch = docs.slice(i, i_end)
+          const ids_batch = meta_batch.map((x) => x.id)
+          const texts_batch = meta_batch.map((x) => x.pageContent)
+
+          const embeddings = await Promise.all(
+            texts_batch.map((text) => this.callPredict(text, 'RETRIEVAL_DOCUMENT'))
+          )
+          const rows = meta_batch.map((doc, index) => ({
+            id: doc.id,
+            source: text.source,
+            title: text.title,
+            context: `This is from url: ${text.source}, content: ${doc.pageContent}`,
+            embedding: embeddings[index],
+          }));
+          console.log("rows", rows)
+          await bigquery
+            .dataset("ondc_dataset")
+            .table("ondc_geminititle")
+            .insert(rows);
+          console.log('Successfully uploaded batch', Math.floor(i / 100) + 1)
+        }
+      } catch (error) {
+        console.error('Error processing text:', error)
+      }
+    }
+    return 'Completed'
+  }
+
   async pushDocumentsToBigQuery(files) {
     const fileData = files;
 
@@ -210,8 +264,9 @@ class PineconeService {
         id: doc.id,
         embedding: embeddings, 
         questions: row.question,
-        feedback: 'positive'
+        feedback: 'negative'
       }));
+      console.log("rows", rows)
         await bigquery
           .dataset("ondc_dataset")
           .table("ondc_quest_emb")
@@ -224,7 +279,6 @@ class PineconeService {
       }
     }
   }
-  
 
   async callPredictForQues(text, task, title = '') {
     console.log("task", task)
@@ -284,11 +338,12 @@ class PineconeService {
       const [rows] = await bigquery.query({ query });
 
       for (const row of rows) {
-        if (row.distance < 0.1) {
-          newQuestion = question;
-          newEmbedding = row.embedding
-          break; 
-        }
+        if (row.feedback==='positive' && row.distance < 0.1) {
+          return {
+            requestion: row.question,  
+            embedding: row.embedding   
+          };
+        } 
       }
       if(newQuestion && newEmbedding) {
         return {
@@ -298,8 +353,7 @@ class PineconeService {
       }
       else {
         return {
-          requestion: question,
-          embedding: questionEmbedding
+          message: "Sorry, I couldn't find a suitable answer to your question."
         }
       }
     } catch (error) {
@@ -432,68 +486,67 @@ class PineconeService {
       throw error;
     }
   }
+
   async askQna(question, prompt, sessionId) {
     try {
-      let finalQuestion = question;
-      const versionLayer = await this.makeDecisionAboutVersionFromGemini(
-        finalQuestion
-      );
-      // return versionLayer
-      let documentName;
-      let oldVersionArray = [];
-      if (versionLayer.isVersion == "No") {
-        oldVersionArray = [
-          "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
-          "ONDC - API Contract for Logistics (v1.1.0).pdf",
-          "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
-          "ONDC - API Contract for Retail (v1.1.0).pdf",
-          "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
-          "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
-          "ONDC API Contract for IGM MVP v1.0.0.pdf",
-        ];
-      } else {
-        documentName = versionLayer.documentName;
-        finalQuestion = versionLayer.newQuestion;
-      }
-      const {
-        requestion,
-        embedding
-      } = await this.getRelevantQuestionsBigQuery(
-        finalQuestion,
-        oldVersionArray,
-        documentName
-      );
-      const context =  await this.getRelevantContextsBigQuery(
-        oldVersionArray,
-        documentName,
-        embedding
-      );
-      // const context = await this.getRelevantContextsBigQuery(question);
-      let finalPrompt = await this.getPrompt(requestion, prompt);
-      var answerStream;
-      var sourcesArray;
-      if (sessionId) {
-        [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(finalPrompt, context.contexts, requestion, sessionId),
-          this.getSources(requestion, context),
-        ]);
-      } else {
-        [answerStream, sourcesArray] = await Promise.all([
-          this.directAnswer(finalPrompt, context.contexts, requestion),
-          this.getSources(requestion, context),
-        ]);
-      }
+        let finalQuestion = question;
+        const versionLayer = await this.makeDecisionAboutVersionFromGemini(finalQuestion);
 
-      console.log("Getting sources");
+        let documentName;
+        let oldVersionArray = [];
 
-      console.log("sourcesArray", sourcesArray);
-      return {
-        answer: answerStream,
-        sources: sourcesArray,
-      };
+        if (versionLayer.isVersion == "No") {
+            oldVersionArray = [
+                "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
+                "ONDC - API Contract for Logistics (v1.1.0).pdf",
+                "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
+                "ONDC - API Contract for Retail (v1.1.0).pdf",
+                "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
+                "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
+                "ONDC API Contract for IGM MVP v1.0.0.pdf",
+            ];
+        } else {
+            documentName = versionLayer.documentName;
+            finalQuestion = versionLayer.newQuestion;
+        }
+        const { requestion, embedding } = await this.getRelevantQuestionsBigQuery(
+            finalQuestion,
+            oldVersionArray,
+            documentName
+        );
+
+        if (requestion && Array.isArray(embedding) && embedding.length > 0) {
+            const context = await this.getRelevantContextsBigQuery(
+                oldVersionArray,
+                documentName,
+                embedding
+            );
+            let finalPrompt = await this.getPrompt(requestion, prompt);
+            let answerStream;
+            let sourcesArray;
+            if (sessionId) {
+                [answerStream, sourcesArray] = await Promise.all([
+                    this.streamAnswer(finalPrompt, context.contexts, requestion, sessionId),
+                    this.getSources(requestion, context),
+                ]);
+            } else {
+                [answerStream, sourcesArray] = await Promise.all([
+                    this.directAnswer(finalPrompt, context.contexts, requestion),
+                    this.getSources(requestion, context),
+                ]);
+            }
+            return {
+                answer: answerStream,
+                sources: sourcesArray,
+            };
+        } else {
+            return {
+                answer: "Sorry, I couldn't find a suitable answer to your question."
+            };
+        }
     } catch (error) {
-      console.log("Error in askQna", error);
-      return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
+        console.log("Error in askQna", error);
+        return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
     }
   }
 
