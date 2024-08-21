@@ -36,19 +36,19 @@ const parameters = helpers.toValue({
 const safetySettings = [
   {
       "category": "HARM_CATEGORY_HARASSMENT",
-      "threshold": "BLOCK_NONE",
+      "threshold": "BLOCK_ONLY_HIGH",
   },
   {
       "category": "HARM_CATEGORY_HATE_SPEECH",
-      "threshold": "BLOCK_NONE",
+      "threshold": "BLOCK_ONLY_HIGH",
   },
   {
       "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-      "threshold": "BLOCK_NONE",
+      "threshold": "BLOCK_ONLY_HIGH",
   },
   {
       "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-      "threshold": "BLOCK_NONE",
+      "threshold": "BLOCK_ONLY_HIGH",
   },
 ]
 const { ChatVertexAI } = require("@langchain/google-vertexai");
@@ -126,6 +126,60 @@ class PineconeService {
     return "Completed";
   }
 
+  async pushTextDataToBigQuery () {
+    const texts = [
+      {
+        context: 'The MD and CEO of ONDC is T Koshy',
+        title: 'All About Open Network for Digital Commerce',
+        source: 'https://ondc.org/about-ondc/'
+      }
+    ]
+
+    for (const text of texts) {
+      try {
+        console.log('Processing text from source:', text.source)
+        const title = text.title
+        console.log('title', title)
+        const splitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 5000,
+          chunkOverlap: 500
+        })
+        const docs = await splitter.createDocuments([text.context])
+        docs.forEach((doc) => {
+          doc.id = uuidv4()
+        })
+
+        const batch_size = 100
+        for (let i = 0; i < docs.length; i += batch_size) {
+          const i_end = Math.min(docs.length, i + batch_size)
+          const meta_batch = docs.slice(i, i_end)
+          const ids_batch = meta_batch.map((x) => x.id)
+          const texts_batch = meta_batch.map((x) => x.pageContent)
+
+          const embeddings = await Promise.all(
+            texts_batch.map((text) => this.callPredict(text, 'RETRIEVAL_DOCUMENT'))
+          )
+          const rows = meta_batch.map((doc, index) => ({
+            id: doc.id,
+            source: text.source,
+            title: text.title,
+            context: `This is from url: ${text.source}, content: ${doc.pageContent}`,
+            embedding: embeddings[index],
+          }));
+          console.log("rows", rows)
+          await bigquery
+            .dataset("ondc_dataset")
+            .table("ondc_geminititle")
+            .insert(rows);
+          console.log('Successfully uploaded batch', Math.floor(i / 100) + 1)
+        }
+      } catch (error) {
+        console.error('Error processing text:', error)
+      }
+    }
+    return 'Completed'
+  }
+
   async pushDocumentsToBigQuery(files) {
     const fileData = files;
 
@@ -188,11 +242,128 @@ class PineconeService {
     );
   }
 
-  async getRelevantContextsBigQuery(question, sourcesArray, documentName) {
+  async createQuestEmbeddings(rows, sessionId) {
+  
+    for (const row of rows) {
+      console.log("rowasddsa", row)
+      try {
+        const splitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 5000,
+          chunkOverlap: 500,
+        });
+        const docs = await splitter.createDocuments([row.question]);
+        docs.forEach((doc) => {
+          doc.id = uuidv4();
+        });
+      for (let i = 0; i < docs.length; i += 1) {
+      const i_end = Math.min(docs.length, i + 1);
+      const meta_batch = docs.slice(i, i_end);
+      const embeddings = await this.callPredictForQues(row.question, 'QUESTION_ANSWERING');
+  
+      const rows = meta_batch.map((doc, index) => ({
+        id: doc.id,
+        embedding: embeddings, 
+        questions: row.question,
+        feedback: 'negative'
+      }));
+      console.log("rows", rows)
+        await bigquery
+          .dataset("ondc_dataset")
+          .table("ondc_quest_emb")
+          .insert(rows);
+        console.log("Successfully uploaded");
+    }
+      } catch (error) {
+        console.error("Error inserting rows into BigQuery:", error);
+        throw error;
+      }
+    }
+  }
+
+  async callPredictForQues(text, task, title = '') {
+    console.log("task", task)
+    try {
+      console.log('title>>>>>', title)
+      console.log("TEXTTTTT", text)
+      let instances
+      if (task === 'RETRIEVAL_DOCUMENT' && title) {
+        instances = text
+          .split(';')
+          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }))
+        instances = text
+          .split(';')
+          .map((e) => helpers.toValue({ content: e, taskType: task }))
+      } else {
+        instances = text
+          .split(';')
+          .map((e) => helpers.toValue({ content: e, taskType: task }))
+      }
+      const request = { endpoint, instances, parameters }
+      const client = new PredictionServiceClient(clientOptions)
+      const [response] = await client.predict(request)
+      const predictions = response.predictions
+
+      for (const prediction of predictions) {
+        const embeddings = prediction.structValue.fields.embeddings
+        const values = embeddings.structValue.fields.values.listValue.values
+      }
+      const embeddings = predictions[0].structValue.fields.embeddings
+      const values = embeddings.structValue.fields.values.listValue.values
+      console.log('Embeddings creaetd')
+      return values.map((value) => value.numberValue)
+    } catch (error) {
+      console.error('Error calling predict:', error)
+      throw error
+    }
+  }
+
+  async getRelevantQuestionsBigQuery(question) {
     const questionEmbedding = await this.callPredict(
       question.replace(/;/g, ""),
       "QUESTION_ANSWERING"
     );
+    const embeddingString = `[${questionEmbedding.join(", ")}]`;
+    let query = `SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
+    FROM
+    VECTOR_SEARCH(
+      TABLE ondc_dataset.ondc_quest_emb,
+      'embedding',
+        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_quest_emb),
+      top_k => 3,
+      distance_type => 'COSINE'
+    )`;
+    try {
+      let newQuestion = ''
+      let newEmbedding = []
+      const [rows] = await bigquery.query({ query });
+
+      for (const row of rows) {
+        if (row.feedback==='positive' && row.distance < 0.1) {
+          return {
+            requestion: row.question,  
+            embedding: row.embedding   
+          };
+        } 
+      }
+      if(newQuestion && newEmbedding) {
+        return {
+          requestion: newQuestion,
+          embedding: newEmbedding
+        }
+      }
+      else {
+        return {
+          message: "Sorry, I couldn't find a suitable answer to your question."
+        }
+      }
+    } catch (error) {
+      console.error("Error querying BigQuery:", error);
+      throw error;
+    }
+}
+
+  async getRelevantContextsBigQuery(sourcesArray, documentName, embedding) {
+    const questionEmbedding = embedding
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
     const sourcesArrayInString = `(${sourcesArray
       .map((source) => `'${source}'`)
@@ -315,60 +486,67 @@ class PineconeService {
       throw error;
     }
   }
+
   async askQna(question, prompt, sessionId) {
     try {
-      let finalQuestion = question;
-      const versionLayer = await this.makeDecisionAboutVersionFromGemini(
-        finalQuestion
-      );
-      // return versionLayer
-      let documentName;
-      let oldVersionArray = [];
-      if (versionLayer.isVersion == "No") {
-        oldVersionArray = [
-          "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
-          "ONDC - API Contract for Logistics (v1.1.0).pdf",
-          "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
-          "ONDC - API Contract for Retail (v1.1.0).pdf",
-          "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
-          "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
-          "ONDC API Contract for IGM MVP v1.0.0.pdf",
-        ];
-      } else {
-        documentName = versionLayer.documentName;
-        finalQuestion = versionLayer.newQuestion;
-      }
-      const context = await this.getRelevantContextsBigQuery(
-        finalQuestion,
-        oldVersionArray,
-        documentName
-      );
-      // const context = await this.getRelevantContextsBigQuery(question);
-      let finalPrompt = await this.getPrompt(finalQuestion, prompt);
-      var answerStream;
-      var sourcesArray;
-      if (sessionId) {
-        [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(finalPrompt, context.contexts, question, sessionId),
-          this.getSources(question, context),
-        ]);
-      } else {
-        [answerStream, sourcesArray] = await Promise.all([
-          this.directAnswer(finalPrompt, context.contexts, question),
-          this.getSources(question, context),
-        ]);
-      }
+        let finalQuestion = question;
+        const versionLayer = await this.makeDecisionAboutVersionFromGemini(finalQuestion);
 
-      console.log("Getting sources");
+        let documentName;
+        let oldVersionArray = [];
 
-      console.log("sourcesArray", sourcesArray);
-      return {
-        answer: answerStream,
-        sources: sourcesArray,
-      };
+        if (versionLayer.isVersion == "No") {
+            oldVersionArray = [
+                "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
+                "ONDC - API Contract for Logistics (v1.1.0).pdf",
+                "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
+                "ONDC - API Contract for Retail (v1.1.0).pdf",
+                "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
+                "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
+                "ONDC API Contract for IGM MVP v1.0.0.pdf",
+            ];
+        } else {
+            documentName = versionLayer.documentName;
+            finalQuestion = versionLayer.newQuestion;
+        }
+        const { requestion, embedding } = await this.getRelevantQuestionsBigQuery(
+            finalQuestion,
+            oldVersionArray,
+            documentName
+        );
+
+        if (requestion && Array.isArray(embedding) && embedding.length > 0) {
+            const context = await this.getRelevantContextsBigQuery(
+                oldVersionArray,
+                documentName,
+                embedding
+            );
+            let finalPrompt = await this.getPrompt(requestion, prompt);
+            let answerStream;
+            let sourcesArray;
+            if (sessionId) {
+                [answerStream, sourcesArray] = await Promise.all([
+                    this.streamAnswer(finalPrompt, context.contexts, requestion, sessionId),
+                    this.getSources(requestion, context),
+                ]);
+            } else {
+                [answerStream, sourcesArray] = await Promise.all([
+                    this.directAnswer(finalPrompt, context.contexts, requestion),
+                    this.getSources(requestion, context),
+                ]);
+            }
+            return {
+                answer: answerStream,
+                sources: sourcesArray,
+            };
+        } else {
+            return {
+                answer: "Sorry, I couldn't find a suitable answer to your question."
+            };
+        }
     } catch (error) {
-      console.log("Error in askQna", error);
-      return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
+        console.log("Error in askQna", error);
+        return __constants.RESPONSE_MESSAGES.ERROR_CALLING_PROVIDER;
     }
   }
 
