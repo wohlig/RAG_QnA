@@ -554,10 +554,10 @@ class PineconeService {
   async askQna(question, prompt, sessionId) {
     try {
       let finalQuestion = question;
-      const decision = await this.makeDecisionFromGemini(question);
-      if (decision.answer == "Yes") {
-        finalQuestion = decision.newQuestion;
-      }
+      // const decision = await this.makeDecisionFromGemini(question);
+      // if (decision.answer == "Yes") {
+      //   finalQuestion = decision.newQuestion;
+      // }
       const versionLayer = await this.makeDecisionAboutVersionFromGemini(
         finalQuestion
       );
