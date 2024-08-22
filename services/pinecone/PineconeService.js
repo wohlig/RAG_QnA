@@ -626,6 +626,19 @@ class PineconeService {
     }
   }
 
+  async githubScrap() {
+    const compiledConvert = compile({ wordwrap: 130 }); // returns (text: string) => string;
+
+    const loader = new RecursiveUrlLoader("https://langchain.com/", {
+      extractor: compiledConvert,
+      maxDepth: 1,
+      excludeDirs: ["/docs/api/"],
+    });
+
+    const docs = await loader.load();
+    console.log(docs[0])
+  }
+
   async callPredict(text, task, title = "") {
     try {
       let instances;
