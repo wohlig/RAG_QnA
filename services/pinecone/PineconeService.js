@@ -769,7 +769,15 @@ class PineconeService {
       safetySettings: safetySettings,
     });
     const sourcesResponse = await sourcesmodel.invoke(
-      `Below is the question and the context from which the answer is to be fetched. You need to provide the sources from where the answer of the question is present. Make sure you only provide the relevant sources where the answer can be fetched from, Also if there is some version mentioned in the question, then please return the sources of that versions only. Make sure you return the sources separated by comma (,) For sources only provide the url or file name spearated by comma, dont add any prefix or suffix while giving the response. Give name of the sources exact as provided in the context. Be accurate in provide the sources, only provide those source where answer is present for the question. \nQuestion: ${question}\nContext: ${context.contexts}`
+      `Below is a question and the context from which the answer is to be fetched. Your task is to accurately identify and return only the sources where the answer to the question is present. If the question mentions a specific version, only return the sources relevant to that version. Provide the sources exactly as they are given in the context, separated by commas, without any prefixes or suffixes. If there are no relevant sources for the question, do not return any unrelated sources.
+      
+      Important Notes:
+
+      1. Only return sources that contain the answer to the question.
+      2. If a version is mentioned, filter the sources accordingly.
+      3. Do not include any unrelated sources.
+
+      \nQuestion: ${question}\nContext: ${context.contexts}`
     );
     console.log("Getting sources done");
 
