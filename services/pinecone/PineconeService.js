@@ -629,14 +629,19 @@ class PineconeService {
   async githubScrap() {
     const compiledConvert = compile({ wordwrap: 130 }); // returns (text: string) => string;
 
-    const loader = new RecursiveUrlLoader("https://langchain.com/", {
+    const loader = new RecursiveUrlLoader("https://github.com/ONDC-Official", {
       extractor: compiledConvert,
-      maxDepth: 1,
-      excludeDirs: ["/docs/api/"],
+      maxDepth: 2,
+      preventOutside: false,
     });
 
     const docs = await loader.load();
-    console.log(docs[0])
+    console.log("Docs", docs.length)
+    const links = docs.map((doc) => {
+      return doc.metadata.source
+    })
+    console.log("Links", links.length)
+    return links
   }
 
   async callPredict(text, task, title = "") {
