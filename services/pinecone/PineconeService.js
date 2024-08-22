@@ -381,36 +381,35 @@ class PineconeService {
     }
   }
 
-  async getRelevantContextsBigQuery(sourcesArray, documentName, embedding) {
+  async getRelevantContextsBigQuery(embedding) {
     const questionEmbedding = embedding;
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
-    const sourcesArrayInString = `(${sourcesArray
-      .map((source) => `'${source}'`)
-      .join(", ")})`;
+    // const sourcesArrayInString = `(${sourcesArray
+    //   .map((source) => `'${source}'`)
+    //   .join(", ")})`;
     let query = `SELECT DISTINCT base.context AS context,
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_geminititle_copy,
+                        TABLE ondc_dataset.ondc_gemini,
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle_copy),
+                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini),
                         top_k => 20,
                         distance_type => 'COSINE'
-                      ) 
-                      WHERE base.source NOT IN ${sourcesArrayInString};`;
-    if (sourcesArrayInString == "()") {
-      query = `SELECT DISTINCT base.context AS context,
-      base.source AS source
-      FROM 
-      VECTOR_SEARCH(
-        TABLE ondc_dataset.ondc_geminititle_copy,
-        'embedding',
-          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle_copy),
-        top_k => 20,
-        distance_type => 'COSINE'
-      )
-      WHERE base.source IN ('${documentName}');`;
-    }
+                      ) `;
+    // if (sourcesArrayInString == "()") {
+    //   query = `SELECT DISTINCT base.context AS context,
+    //   base.source AS source
+    //   FROM 
+    //   VECTOR_SEARCH(
+    //     TABLE ondc_dataset.ondc_geminititle_copy,
+    //     'embedding',
+    //       (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle_copy),
+    //     top_k => 20,
+    //     distance_type => 'COSINE'
+    //   )
+    //   WHERE base.source IN ('${documentName}');`;
+    // }
     try {
       const [rows] = await bigquery.query({ query });
       const contexts = rows.map((row) => row.context);
@@ -558,32 +557,30 @@ class PineconeService {
       // if (decision.answer == "Yes") {
       //   finalQuestion = decision.newQuestion;
       // }
-      const versionLayer = await this.makeDecisionAboutVersionFromGemini(
-        finalQuestion
-      );
+      // const versionLayer = await this.makeDecisionAboutVersionFromGemini(
+      //   finalQuestion
+      // );
 
-      let documentName;
-      let oldVersionArray = [];
+      // let documentName;
+      // let oldVersionArray = [];
 
-      if (versionLayer.isVersion == "No") {
-        oldVersionArray = [
-          "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
-          "ONDC - API Contract for Logistics (v1.1.0).pdf",
-          "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
-          "ONDC - API Contract for Retail (v1.1.0).pdf",
-          "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
-          "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
-          "ONDC API Contract for IGM MVP v1.0.0.pdf",
-        ];
-      } else {
-        documentName = versionLayer.documentName;
-        finalQuestion = versionLayer.newQuestion;
-      }
+      // if (versionLayer.isVersion == "No") {
+      //   oldVersionArray = [
+      //     "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
+      //     "ONDC - API Contract for Logistics (v1.1.0).pdf",
+      //     "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
+      //     "ONDC - API Contract for Retail (v1.1.0).pdf",
+      //     "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
+      //     "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
+      //     "ONDC API Contract for IGM MVP v1.0.0.pdf",
+      //   ];
+      // } else {
+      //   documentName = versionLayer.documentName;
+      //   finalQuestion = versionLayer.newQuestion;
+      // }
       const { requestion, embedding, feedback } =
         await this.getRelevantQuestionsBigQuery(
-          finalQuestion,
-          oldVersionArray,
-          documentName
+          finalQuestion
         );
       if (feedback === "negative") {
         return {
@@ -592,8 +589,6 @@ class PineconeService {
         };
       }
       const context = await this.getRelevantContextsBigQuery(
-        oldVersionArray,
-        documentName,
         embedding
       );
       let finalPrompt = await this.getPrompt(requestion, prompt);
