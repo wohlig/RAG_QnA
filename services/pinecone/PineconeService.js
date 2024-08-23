@@ -781,6 +781,13 @@ class PineconeService {
     sourcesArray = sourcesArray.map((source) => source.trim());
     sourcesArray = [...new Set(sourcesArray)];
     sourcesArray = sourcesArray.filter((source) => source !== "");
+    // if any source is a github link, then remove all the spaces from the link
+    sourcesArray = sourcesArray.map((source) => {
+      if (source.includes("https://github.com")) {
+        return source.replace(/\s/g, "");
+      }
+      return source;
+    });
     return sourcesArray;
   }
 }
