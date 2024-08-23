@@ -583,6 +583,7 @@ class PineconeService {
           finalQuestion
         );
       if (feedback === "negative") {
+        io.to(sessionId).emit("response", "Sorry, I am not able to answer this question");
         return {
           message: "Sorry, I am not able to answer this question",
           sources: [],
