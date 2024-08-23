@@ -354,7 +354,7 @@ class PineconeService {
     try {
       let newQuestion = question;
       let newEmbedding = questionEmbedding;
-      const feedback = "positive";
+      let feedback = "positive";
       const [rows] = await bigquery.query({ query });
 
       for (const row of rows) {
