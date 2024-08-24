@@ -37,7 +37,7 @@ const validation = (req, res, next) => {
 const askQna = async (req, res) => {
   try {
     console.log('askQna req.body', req.body)
-    const result = await PineconeService.askQna(req.body.question, req.body.prompt, req.body.sessionId)
+    const result = await PineconeService.askQna(req.body.question, req.body.prompt, req.body.sessionId, req.body.chat_history)
     result.question = req.body.question
     console.log('askQna result', result)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })

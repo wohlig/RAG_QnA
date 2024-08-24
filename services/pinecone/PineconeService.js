@@ -400,7 +400,7 @@ class PineconeService {
     // if (sourcesArrayInString == "()") {
     //   query = `SELECT DISTINCT base.context AS context,
     //   base.source AS source
-    //   FROM 
+    //   FROM
     //   VECTOR_SEARCH(
     //     TABLE ondc_dataset.ondc_geminititle_copy,
     //     'embedding',
@@ -494,7 +494,7 @@ class PineconeService {
       throw error;
     }
   }
-  async makeDecisionFromGemini(question) {
+  async makeDecisionFromGemini(question, chatHistory) {
     const model = new ChatVertexAI({
       temperature: 0,
       model: "gemini-1.5-pro",
@@ -510,35 +510,52 @@ class PineconeService {
         ),
     });
 
-    let chatHistory = chatHistoryDummy.slice(-3);
-    let response
-    if (chatHistory.length > 0) { 
+    let response;
+    if (chatHistory.length > 0) {
+
+      let newChatHistory = chatHistory.slice(-3);
+      newChatHistory = chatHistory.map((chat) => {
+        return {
+          question: chat.query,
+          response: chat.response,
+        };
+      });
+      // convert newChatHistory to string
+      newChatHistory = JSON.stringify(newChatHistory);
       console.log(
         "Found chat history, making decision about rephrasing question"
       );
       const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
       const chain = RunnableSequence.from([
         ChatPromptTemplate.fromTemplate(
-          `Analyze the given question and decide if it requires context from the previous conversation. Respond with "Yes" only if the question is clearly related to the previous conversation or requires the context to be understood correctly. If the question is standalone or unrelated, respond with "No". If 'Yes', rephrase the question using necessary context from the chat history and assign the 'newQuestion' field with this new framed question. Ensure the rephrased question is concise and directly incorporates relevant context without altering the original intent. If 'No', assign the 'newQuestion' field as an empty string ('').
-            Question: {question}
-            Chat History (Last three interactions): {chatHistory}
-            Format Instructions: {format_instructions}`
+          `Your task is to determine whether the current question requires context from the previous conversation and, if so, to rephrase it using only the specific details from the chat history.
+
+           - If the current question is unclear or generic (e.g., "Explain in detail"), and it relates to any part of the chat history, rephrase it by explicitly incorporating the relevant information from the chat history.
+           - The rephrased question must specifically mention key details from the chat history that are necessary to make the question clear and relevant.
+           - Do not introduce new concepts, and do not ask the user to provide more details. The rephrased question must directly use the context available from the chat history.
+           - If the current question is unrelated to the previous conversation, or is already clear and specific, respond with "No" and leave the 'newQuestion' field empty ('').
+
+           Your goal is to ensure that the rephrased question is fully informed by the chat history and directly reflects the user's prior interactions.
+
+           Question: {question}
+           Chat History (Array of last three interactions, with the latest interaction at the last index): {chatHistory}
+           Format Instructions: {format_instructions}`
         ),
         model,
         parser,
       ]);
+      console.log("Chat History", newChatHistory);
 
       response = await chain.invoke({
+        chatHistory: newChatHistory,
         question: question,
         format_instructions: parser.getFormatInstructions(),
-        chatHistory: chatHistory,
       });
       if (response.answer === "Yes") {
         console.log("Question is rephrased as: ", response);
-      }
-      else {
+      } else {
         console.log("Question is not rephrased", response);
-        response.newQuestion = ''
+        response.newQuestion = "";
       }
     } else {
       console.log("No chat history found, skipping decision making");
@@ -550,13 +567,16 @@ class PineconeService {
     return response;
   }
 
-  async askQna(question, prompt, sessionId) {
+  async askQna(question, prompt, sessionId, chat_history) {
     try {
       let finalQuestion = question;
-      // const decision = await this.makeDecisionFromGemini(question);
-      // if (decision.answer == "Yes") {
-      //   finalQuestion = decision.newQuestion;
-      // }
+      const decision = await this.makeDecisionFromGemini(
+        question,
+        chat_history
+      );
+      if (decision.answer == "Yes") {
+        finalQuestion = decision.newQuestion;
+      }
       // const versionLayer = await this.makeDecisionAboutVersionFromGemini(
       //   finalQuestion
       // );
@@ -579,25 +599,30 @@ class PineconeService {
       //   finalQuestion = versionLayer.newQuestion;
       // }
       const { requestion, embedding, feedback } =
-        await this.getRelevantQuestionsBigQuery(
-          finalQuestion
-        );
+        await this.getRelevantQuestionsBigQuery(finalQuestion);
       if (feedback === "negative") {
-        io.to(sessionId).emit("response", "Sorry, I am not able to answer this question");
+        io.to(sessionId).emit(
+          "response",
+          "Sorry, I am not able to answer this question"
+        );
         return {
           message: "Sorry, I am not able to answer this question",
           sources: [],
         };
       }
-      const context = await this.getRelevantContextsBigQuery(
-        embedding
-      );
+      const context = await this.getRelevantContextsBigQuery(embedding);
       let finalPrompt = await this.getPrompt(requestion, prompt);
       let answerStream;
       let sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(
+          chat_history.length >0 ? this.streamAnswerWithChatHistory(
+            finalPrompt,
+            context.contexts,
+            requestion,
+            sessionId,
+            chat_history
+          ) : this.streamAnswer(
             finalPrompt,
             context.contexts,
             requestion,
@@ -663,58 +688,57 @@ class PineconeService {
     }
   }
 
-  // async streamAnswer(
-  //   finalPrompt,
-  //   context,
-  //   question,
-  //   sessionId,
-  //   questionToPushInChatHistory
-  // ) {
-  //   console.log("Stream Answer", question);
-  //   const newPrompt = ChatPromptTemplate.fromMessages([
-  //     ["system", finalPrompt],
-  //     new MessagesPlaceholder("chat_history"),
-  //     ["user", "{input}"],
-  //     // new MessagesPlaceholder("agent_scratchpad"),
-  //   ]);
-  //   const chatHistory = new ChatMessageHistory(chatHistoryONDC.slice(-6));
-  //   const existingMemory = new BufferMemory({
-  //     chatHistory: chatHistory,
-  //     returnMessages: true,
-  //     memoryKey: "chat_history",
-  //   });
-  //   const llmChain = new ConversationChain({
-  //     llm: model,
-  //     memory: existingMemory,
-  //     prompt: newPrompt,
-  //   });
-  //   const responseStream = await llmChain.stream({
-  //     input:
-  //       finalPrompt +
-  //       "\n" +
-  //       `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
-  //   });
-  //   let finalResponse = "";
-  //   if (sessionId) {
-  //     for await (const response of responseStream) {
-  //       // console.log("This is response", response)
-  //       finalResponse += response.response;
-  //       console.log("response", response.response);
-  //       io.to(sessionId).emit("response", response.response);
-  //     }
-  //     console.log("Done");
-  //   }
-  //   chatHistoryONDC.push(
-  //     new HumanMessage(questionToPushInChatHistory),
-  //     new AIMessage(finalResponse)
-  //   );
-  //   chatHistoryDummy.push({
-  //     question: questionToPushInChatHistory,
-  //     answer: finalResponse,
-  //   });
-  //   console.log("finalResponse", finalResponse);
-  //   return finalResponse;
-  // }
+  async streamAnswerWithChatHistory(
+    finalPrompt,
+    context,
+    question,
+    sessionId,
+    chat_history
+  ) {
+    console.log("Stream Answer with chat history", question);
+    let chatHistoryONDC = []
+    chat_history.forEach((chat) => {
+      chatHistoryONDC.push(
+        new HumanMessage(chat.query),
+        new AIMessage(chat.response)
+      );
+    });
+    const newPrompt = ChatPromptTemplate.fromMessages([
+      ["system", finalPrompt],
+      new MessagesPlaceholder("chat_history"),
+      ["user", "{input}"],
+      // new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+    const chatHistory = new ChatMessageHistory(chatHistoryONDC);
+    const existingMemory = new BufferMemory({
+      chatHistory: chatHistory,
+      returnMessages: true,
+      memoryKey: "chat_history",
+    });
+    const llmChain = new ConversationChain({
+      llm: model,
+      memory: existingMemory,
+      prompt: newPrompt,
+    });
+    const responseStream = await llmChain.stream({
+      input:
+        finalPrompt +
+        "\n" +
+        `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
+    });
+    let finalResponse = "";
+    if (sessionId) {
+      for await (const response of responseStream) {
+        // console.log("This is response", response)
+        finalResponse += response.response;
+        console.log("response", response.response);
+        io.to(sessionId).emit("response", response.response);
+      }
+      console.log("Done");
+    }
+    console.log("finalResponse", finalResponse);
+    return finalResponse;
+  }
   async streamAnswer(finalPrompt, context, question, sessionId) {
     const answerStream = await model.stream(
       finalPrompt +
@@ -785,6 +809,10 @@ class PineconeService {
     sourcesArray = sourcesArray.map((source) => {
       if (source.includes("https://github.com")) {
         return source.replace(/\s/g, "");
+      }
+      // remove quotes from the source
+      if (source.includes('"')) {
+        return source.replace(/"/g, "");
       }
       return source;
     });
