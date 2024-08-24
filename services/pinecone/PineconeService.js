@@ -4,10 +4,12 @@ const keys = process.env.GOOGLE_SECRETS;
 fs.writeFileSync(path.join(__dirname, "keys.json"), keys);
 const keys2 = process.env.GOOGLE_VERTEX_SECRETS;
 fs.writeFileSync("./vertexkeys.json", keys2);
-const { GoogleGenerativeAI, FunctionDeclarationSchemaType } = require("@google/generative-ai");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence } = require("@langchain/core/runnables");
-const { ChatPromptTemplate } = require("@langchain/core/prompts");
+const {
+  ChatPromptTemplate,
+  MessagesPlaceholder,
+} = require("@langchain/core/prompts");
 
 // Access your API key as an environment variable
 // const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
@@ -19,7 +21,6 @@ const { BigQuery } = require("@google-cloud/bigquery");
 const {
   RecursiveUrlLoader,
 } = require("@langchain/community/document_loaders/web/recursive_url");
-const RagDocs = require("../../mongooseSchema/RagDocs");
 
 const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, "keys.json"),
@@ -33,24 +34,29 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
+// const chatHistoryONDC = [];
+// const chatHistoryDummy = [];
+const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
+const { HumanMessage, AIMessage } = require("@langchain/core/messages");
+const { ConversationChain } = require("langchain/chains");
 const safetySettings = [
   {
-      "category": "HARM_CATEGORY_HARASSMENT",
-      "threshold": "BLOCK_ONLY_HIGH",
+    category: "HARM_CATEGORY_HARASSMENT",
+    threshold: "BLOCK_ONLY_HIGH",
   },
   {
-      "category": "HARM_CATEGORY_HATE_SPEECH",
-      "threshold": "BLOCK_ONLY_HIGH",
+    category: "HARM_CATEGORY_HATE_SPEECH",
+    threshold: "BLOCK_ONLY_HIGH",
   },
   {
-      "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-      "threshold": "BLOCK_ONLY_HIGH",
+    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    threshold: "BLOCK_ONLY_HIGH",
   },
   {
-      "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-      "threshold": "BLOCK_ONLY_HIGH",
+    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+    threshold: "BLOCK_ONLY_HIGH",
   },
-]
+];
 const { ChatVertexAI } = require("@langchain/google-vertexai");
 const { z } = require("zod");
 const model = new ChatVertexAI({
@@ -60,7 +66,7 @@ const model = new ChatVertexAI({
   temperature: 0,
   model: "gemini-1.5-pro",
   maxOutputTokens: 8192,
-  safetySettings: safetySettings
+  safetySettings: safetySettings,
 });
 const pdf_parse = require("pdf-parse");
 
@@ -113,7 +119,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .table("ondc_geminititle_copy")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -121,6 +127,62 @@ class PineconeService {
         console.log("URL Processed:", url);
       } catch (error) {
         console.error("Error processing URL:", url, error.message);
+      }
+    }
+    return "Completed";
+  }
+
+  async pushTextDataToBigQuery() {
+    const texts = [
+      {
+        context: "The MD and CEO of ONDC is T Koshy",
+        title: "All About Open Network for Digital Commerce",
+        source: "https://ondc.org/about-ondc/",
+      },
+    ];
+
+    for (const text of texts) {
+      try {
+        console.log("Processing text from source:", text.source);
+        const title = text.title;
+        console.log("title", title);
+        const splitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 5000,
+          chunkOverlap: 500,
+        });
+        const docs = await splitter.createDocuments([text.context]);
+        docs.forEach((doc) => {
+          doc.id = uuidv4();
+        });
+
+        const batch_size = 100;
+        for (let i = 0; i < docs.length; i += batch_size) {
+          const i_end = Math.min(docs.length, i + batch_size);
+          const meta_batch = docs.slice(i, i_end);
+          const ids_batch = meta_batch.map((x) => x.id);
+          const texts_batch = meta_batch.map((x) => x.pageContent);
+
+          const embeddings = await Promise.all(
+            texts_batch.map((text) =>
+              this.callPredict(text, "RETRIEVAL_DOCUMENT")
+            )
+          );
+          const rows = meta_batch.map((doc, index) => ({
+            id: doc.id,
+            source: text.source,
+            title: text.title,
+            context: `This is from url: ${text.source}, content: ${doc.pageContent}`,
+            embedding: embeddings[index],
+          }));
+          console.log("rows", rows);
+          await bigquery
+            .dataset("ondc_dataset")
+            .table("ondc_geminititle")
+            .insert(rows);
+          console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
+        }
+      } catch (error) {
+        console.error("Error processing text:", error);
       }
     }
     return "Completed";
@@ -150,9 +212,12 @@ class PineconeService {
           const meta_batch = docs.slice(i, i_end);
           const ids_batch = meta_batch.map((x) => x.id);
           const texts_batch = meta_batch.map((x) => ({
-            content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`
-            }));
-          const embeddings = await this.getEmbeddingsBatch(texts_batch,file.originalname);
+            content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`,
+          }));
+          const embeddings = await this.getEmbeddingsBatch(
+            texts_batch,
+            file.originalname
+          );
           const rows = meta_batch.map((doc, index) => ({
             id: doc.id,
             embedding: embeddings[index],
@@ -163,7 +228,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .table("ondc_geminititle_copy")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -183,60 +248,174 @@ class PineconeService {
   async getEmbeddingsBatch(texts, file_name) {
     return Promise.all(
       texts.map((text) =>
-        this.callPredict(text.content.replace(/;/g, ""), "RETRIEVAL_DOCUMENT", file_name)
+        this.callPredict(
+          text.content.replace(/;/g, ""),
+          "RETRIEVAL_DOCUMENT",
+          file_name
+        )
       )
     );
   }
 
-  async getRelevantContextsBigQuery(question, sourcesArray, documentName) {
+  async createQuestEmbeddings(rows, sessionId) {
+    for (const row of rows) {
+      console.log("rowasddsa", row);
+      try {
+        const splitter = new RecursiveCharacterTextSplitter({
+          chunkSize: 5000,
+          chunkOverlap: 500,
+        });
+        const docs = await splitter.createDocuments([row.question]);
+        docs.forEach((doc) => {
+          doc.id = uuidv4();
+        });
+        for (let i = 0; i < docs.length; i += 1) {
+          const i_end = Math.min(docs.length, i + 1);
+          const meta_batch = docs.slice(i, i_end);
+          const embeddings = await this.callPredictForQues(
+            row.question,
+            "QUESTION_ANSWERING"
+          );
+
+          const rows = meta_batch.map((doc, index) => ({
+            id: doc.id,
+            embedding: embeddings,
+            questions: row.question,
+            feedback: "negative",
+          }));
+          console.log("rows", rows);
+          await bigquery
+            .dataset("ondc_dataset")
+            .table("ondc_quest_emb")
+            .insert(rows);
+          console.log("Successfully uploaded");
+        }
+      } catch (error) {
+        console.error("Error inserting rows into BigQuery:", error);
+        throw error;
+      }
+    }
+  }
+
+  async callPredictForQues(text, task, title = "") {
+    console.log("task", task);
+    try {
+      console.log("title>>>>>", title);
+      console.log("TEXTTTTT", text);
+      let instances;
+      if (task === "RETRIEVAL_DOCUMENT" && title) {
+        instances = text
+          .split(";")
+          .map((e) =>
+            helpers.toValue({ content: e, taskType: task, title: title })
+          );
+        instances = text
+          .split(";")
+          .map((e) => helpers.toValue({ content: e, taskType: task }));
+      } else {
+        instances = text
+          .split(";")
+          .map((e) => helpers.toValue({ content: e, taskType: task }));
+      }
+      const request = { endpoint, instances, parameters };
+      const client = new PredictionServiceClient(clientOptions);
+      const [response] = await client.predict(request);
+      const predictions = response.predictions;
+
+      for (const prediction of predictions) {
+        const embeddings = prediction.structValue.fields.embeddings;
+        const values = embeddings.structValue.fields.values.listValue.values;
+      }
+      const embeddings = predictions[0].structValue.fields.embeddings;
+      const values = embeddings.structValue.fields.values.listValue.values;
+      console.log("Embeddings creaetd");
+      return values.map((value) => value.numberValue);
+    } catch (error) {
+      console.error("Error calling predict:", error);
+      throw error;
+    }
+  }
+
+  async getRelevantQuestionsBigQuery(question) {
     const questionEmbedding = await this.callPredict(
       question.replace(/;/g, ""),
       "QUESTION_ANSWERING"
     );
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
-    const sourcesArrayInString = `(${sourcesArray
-      .map((source) => `'${source}'`)
-      .join(", ")})`;
+    let query = `SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
+    FROM
+    VECTOR_SEARCH(
+      TABLE ondc_dataset.ondc_quest_emb,
+      'embedding',
+        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_quest_emb),
+      top_k => 3,
+      distance_type => 'COSINE'
+    )`;
+    try {
+      let newQuestion = question;
+      let newEmbedding = questionEmbedding;
+      let feedback = "positive";
+      const [rows] = await bigquery.query({ query });
+
+      for (const row of rows) {
+        if (row.feedback === "positive" && row.distance < 0.1) {
+          console.log("Found similar question", row.question);
+          newQuestion = row.question;
+          newEmbedding = row.embedding;
+          break;
+        }
+        if (row.feedback === "negative" && row.distance < 0.1) {
+          console.log("Negative feedback found", row.question);
+          feedback = "negative";
+          break;
+        }
+      }
+      return {
+        requestion: newQuestion,
+        embedding: newEmbedding,
+        feedback: feedback,
+      };
+    } catch (error) {
+      console.error("Error querying BigQuery:", error);
+      throw error;
+    }
+  }
+
+  async getRelevantContextsBigQuery(embedding) {
+    const questionEmbedding = embedding;
+    const embeddingString = `[${questionEmbedding.join(", ")}]`;
+    // const sourcesArrayInString = `(${sourcesArray
+    //   .map((source) => `'${source}'`)
+    //   .join(", ")})`;
     let query = `SELECT DISTINCT base.context AS context,
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_geminititle,
+                        TABLE ondc_dataset.ondc_gemini_latest,
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
+                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest),
                         top_k => 20,
                         distance_type => 'COSINE'
-                      ) 
-                      WHERE base.source NOT IN ${sourcesArrayInString};`;
-    if (sourcesArrayInString == "()") {
-      query = `SELECT DISTINCT base.context AS context,
-      base.source AS source
-      FROM 
-      VECTOR_SEARCH(
-        TABLE ondc_dataset.ondc_geminititle,
-        'embedding',
-          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
-        top_k => 20,
-        distance_type => 'COSINE'
-      )
-      WHERE base.source IN ('${documentName}');`;
-    }
+                      ) `;
+    // if (sourcesArrayInString == "()") {
+    //   query = `SELECT DISTINCT base.context AS context,
+    //   base.source AS source
+    //   FROM 
+    //   VECTOR_SEARCH(
+    //     TABLE ondc_dataset.ondc_geminititle_copy,
+    //     'embedding',
+    //       (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle_copy),
+    //     top_k => 20,
+    //     distance_type => 'COSINE'
+    //   )
+    //   WHERE base.source IN ('${documentName}');`;
+    // }
     try {
       const [rows] = await bigquery.query({ query });
-      // console.log("Rows>>>>", rows);
       const contexts = rows.map((row) => row.context);
-      // const allSources = rows.map((row) => row.source);
 
-      // const finalContext = contexts.join(" ");
-      // const uniqueSources = [...new Set(allSources)];
-      // const finalSources = uniqueSources.join(", ");
-      // console.log("Data>>>>>>>>", {
-      //   contexts: finalContext,
-      //   sources: finalSources,
-      // });
       return {
         contexts: contexts,
-        // sources: finalSources,
       };
     } catch (error) {
       console.error("Error querying BigQuery:", error);
@@ -261,11 +440,11 @@ class PineconeService {
   }
   async makeDecisionAboutVersionFromGemini(question) {
     try {
-      console.log("Making Decision")
+      console.log("Making Decision");
       const model = new ChatVertexAI({
         temperature: 0,
         model: "gemini-1.5-pro",
-        safetySettings: safetySettings
+        safetySettings: safetySettings,
       });
       const structuredSchema = z.object({
         isVersion: z.string().describe("'Yes' or 'No'"),
@@ -307,61 +486,137 @@ class PineconeService {
         question: question,
         format_instructions: parser.getFormatInstructions(),
       });
-      
-      console.log(response);
-      return response
+
+      console.log("Descision about version: ", response);
+      return response;
     } catch (error) {
       console.error("Error invoking Gemini model:", error);
       throw error;
     }
   }
+  async makeDecisionFromGemini(question) {
+    const model = new ChatVertexAI({
+      temperature: 0,
+      model: "gemini-1.5-pro",
+      safetySettings: safetySettings,
+    });
+
+    const structuredSchema = z.object({
+      answer: z.string().describe("'Yes' or 'No'"),
+      newQuestion: z
+        .string()
+        .describe(
+          "the new framed question based on the question asked and the chat history provided"
+        ),
+    });
+
+    let chatHistory = chatHistoryDummy.slice(-3);
+    let response
+    if (chatHistory.length > 0) { 
+      console.log(
+        "Found chat history, making decision about rephrasing question"
+      );
+      const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
+      const chain = RunnableSequence.from([
+        ChatPromptTemplate.fromTemplate(
+          `Analyze the given question and decide if it requires context from the previous conversation. Respond with "Yes" only if the question is clearly related to the previous conversation or requires the context to be understood correctly. If the question is standalone or unrelated, respond with "No". If 'Yes', rephrase the question using necessary context from the chat history and assign the 'newQuestion' field with this new framed question. Ensure the rephrased question is concise and directly incorporates relevant context without altering the original intent. If 'No', assign the 'newQuestion' field as an empty string ('').
+            Question: {question}
+            Chat History (Last three interactions): {chatHistory}
+            Format Instructions: {format_instructions}`
+        ),
+        model,
+        parser,
+      ]);
+
+      response = await chain.invoke({
+        question: question,
+        format_instructions: parser.getFormatInstructions(),
+        chatHistory: chatHistory,
+      });
+      if (response.answer === "Yes") {
+        console.log("Question is rephrased as: ", response);
+      }
+      else {
+        console.log("Question is not rephrased", response);
+        response.newQuestion = ''
+      }
+    } else {
+      console.log("No chat history found, skipping decision making");
+      response = {
+        answer: "No",
+        newQuestion: "",
+      };
+    }
+    return response;
+  }
+
   async askQna(question, prompt, sessionId) {
     try {
       let finalQuestion = question;
-      const versionLayer = await this.makeDecisionAboutVersionFromGemini(
-        finalQuestion
-      );
-      // return versionLayer
-      let documentName;
-      let oldVersionArray = [];
-      if (versionLayer.isVersion == "No") {
-        oldVersionArray = [
-          "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
-          "ONDC - API Contract for Logistics (v1.1.0).pdf",
-          "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
-          "ONDC - API Contract for Retail (v1.1.0).pdf",
-          "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
-          "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
-          "ONDC API Contract for IGM MVP v1.0.0.pdf",
-        ];
-      } else {
-        documentName = versionLayer.documentName;
-        finalQuestion = versionLayer.newQuestion;
+      // const decision = await this.makeDecisionFromGemini(question);
+      // if (decision.answer == "Yes") {
+      //   finalQuestion = decision.newQuestion;
+      // }
+      // const versionLayer = await this.makeDecisionAboutVersionFromGemini(
+      //   finalQuestion
+      // );
+
+      // let documentName;
+      // let oldVersionArray = [];
+
+      // if (versionLayer.isVersion == "No") {
+      //   oldVersionArray = [
+      //     "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
+      //     "ONDC - API Contract for Logistics (v1.1.0).pdf",
+      //     "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
+      //     "ONDC - API Contract for Retail (v1.1.0).pdf",
+      //     "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
+      //     "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
+      //     "ONDC API Contract for IGM MVP v1.0.0.pdf",
+      //   ];
+      // } else {
+      //   documentName = versionLayer.documentName;
+      //   finalQuestion = versionLayer.newQuestion;
+      // }
+      const { requestion, embedding, feedback } =
+        await this.getRelevantQuestionsBigQuery(
+          finalQuestion
+        );
+      if (feedback === "negative") {
+        io.to(sessionId).emit("response", "Sorry, I am not able to answer this question");
+        return {
+          message: "Sorry, I am not able to answer this question",
+          sources: [],
+        };
       }
       const context = await this.getRelevantContextsBigQuery(
-        finalQuestion,
-        oldVersionArray,
-        documentName
+        embedding
       );
-      // const context = await this.getRelevantContextsBigQuery(question);
-      let finalPrompt = await this.getPrompt(finalQuestion, prompt);
-      var answerStream;
-      var sourcesArray;
+      let finalPrompt = await this.getPrompt(requestion, prompt);
+      let answerStream;
+      let sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(finalPrompt, context.contexts, question, sessionId),
-          this.getSources(question, context),
+          this.streamAnswer(
+            finalPrompt,
+            context.contexts,
+            requestion,
+            sessionId,
+            finalQuestion
+          ),
+          this.getSources(requestion, context),
         ]);
       } else {
         [answerStream, sourcesArray] = await Promise.all([
-          this.directAnswer(finalPrompt, context.contexts, question),
-          this.getSources(question, context),
+          this.directAnswer(
+            finalPrompt,
+            context.contexts,
+            requestion,
+            finalQuestion
+          ),
+          this.getSources(requestion, context),
         ]);
       }
-
-      console.log("Getting sources");
-
-      console.log("sourcesArray", sourcesArray);
       return {
         answer: answerStream,
         sources: sourcesArray,
@@ -375,15 +630,16 @@ class PineconeService {
   async callPredict(text, task, title = "") {
     try {
       let instances;
-      if (task==="RETRIEVAL_DOCUMENT" && title) {
+      if (task === "RETRIEVAL_DOCUMENT" && title) {
         instances = text
           .split(";")
-          .map((e) => helpers.toValue({ content: e, taskType: task, title: title }));
+          .map((e) =>
+            helpers.toValue({ content: e, taskType: task, title: title })
+          );
         instances = text
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task }));
-      }
-      else {
+      } else {
         instances = text
           .split(";")
           .map((e) => helpers.toValue({ content: e, taskType: task }));
@@ -399,13 +655,66 @@ class PineconeService {
       }
       const embeddings = predictions[0].structValue.fields.embeddings;
       const values = embeddings.structValue.fields.values.listValue.values;
-      console.log("Embeddings creaetd");
+      console.log("Embeddings created");
       return values.map((value) => value.numberValue);
     } catch (error) {
       console.error("Error calling predict:", error);
       throw error;
     }
   }
+
+  // async streamAnswer(
+  //   finalPrompt,
+  //   context,
+  //   question,
+  //   sessionId,
+  //   questionToPushInChatHistory
+  // ) {
+  //   console.log("Stream Answer", question);
+  //   const newPrompt = ChatPromptTemplate.fromMessages([
+  //     ["system", finalPrompt],
+  //     new MessagesPlaceholder("chat_history"),
+  //     ["user", "{input}"],
+  //     // new MessagesPlaceholder("agent_scratchpad"),
+  //   ]);
+  //   const chatHistory = new ChatMessageHistory(chatHistoryONDC.slice(-6));
+  //   const existingMemory = new BufferMemory({
+  //     chatHistory: chatHistory,
+  //     returnMessages: true,
+  //     memoryKey: "chat_history",
+  //   });
+  //   const llmChain = new ConversationChain({
+  //     llm: model,
+  //     memory: existingMemory,
+  //     prompt: newPrompt,
+  //   });
+  //   const responseStream = await llmChain.stream({
+  //     input:
+  //       finalPrompt +
+  //       "\n" +
+  //       `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
+  //   });
+  //   let finalResponse = "";
+  //   if (sessionId) {
+  //     for await (const response of responseStream) {
+  //       // console.log("This is response", response)
+  //       finalResponse += response.response;
+  //       console.log("response", response.response);
+  //       io.to(sessionId).emit("response", response.response);
+  //     }
+  //     console.log("Done");
+  //   }
+  //   chatHistoryONDC.push(
+  //     new HumanMessage(questionToPushInChatHistory),
+  //     new AIMessage(finalResponse)
+  //   );
+  //   chatHistoryDummy.push({
+  //     question: questionToPushInChatHistory,
+  //     answer: finalResponse,
+  //   });
+  //   console.log("finalResponse", finalResponse);
+  //   return finalResponse;
+  // }
   async streamAnswer(finalPrompt, context, question, sessionId) {
     const answerStream = await model.stream(
       finalPrompt +
@@ -424,13 +733,26 @@ class PineconeService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
-  async directAnswer(finalPrompt, context, question) {
-    console.log("Direct Answer")
+  async directAnswer(
+    finalPrompt,
+    context,
+    question,
+    questionToPushInChatHistory
+  ) {
+    console.log("Direct Answer");
     const response = await model.invoke(
       finalPrompt +
         "\n" +
         `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
     );
+    chatHistoryONDC.push(
+      new HumanMessage(questionToPushInChatHistory),
+      new AIMessage(response.content)
+    );
+    chatHistoryDummy.push({
+      question: questionToPushInChatHistory,
+      answer: response.content,
+    });
     return response.content;
   }
   async getSources(question, context) {
@@ -440,16 +762,46 @@ class PineconeService {
       },
       temperature: 0,
       model: "gemini-1.5-pro",
-      safetySettings: safetySettings
+      safetySettings: safetySettings,
     });
     const sourcesResponse = await sourcesmodel.invoke(
-      `Below is the question and the context from which the answer is to be fetched. You need to provide the sources from where the answer of the question is present. Make sure you only provide the relevant sources where the answer can be fetched from, Also if there is some version mentioned in the question, then please return the sources of that versions only. Make sure you return the sources separated by comma (,) For sources only provide the url or file name spearated by comma, dont add any prefix or suffix while giving the response. Give name of the sources exact as provided in the context. Be accurate in provide the sources, only provide those source where answer is present for the question. \nQuestion: ${question}\nContext: ${context.contexts}`
+      `Below is a question and the context from which the answer is to be fetched. Your task is to accurately identify and return only the sources where the answer to the question is present. If the question mentions a specific version, only return the sources relevant to that version. Provide the sources exactly as they are given in the context, separated by commas, without any prefixes or suffixes. If there are no relevant sources for the question, do not return any unrelated sources, instead return an empty string ('').
+      
+      Important Notes:
+
+      1. Only return sources that contain the answer to the question.
+      2. If a version is mentioned, filter the sources accordingly.
+      3. Do not include any unrelated sources, instead return empty string ('').
+
+      \nQuestion: ${question}\nContext: ${context.contexts}`
     );
     console.log("Getting sources done");
 
     let sourcesArray = sourcesResponse.content.split(",");
     sourcesArray = sourcesArray.map((source) => source.trim());
     sourcesArray = [...new Set(sourcesArray)];
+    sourcesArray = sourcesArray.filter((source) => source !== "");
+    // if any source is a github link, then remove all the spaces from the link
+    sourcesArray = sourcesArray.map((source) => {
+      if (source.includes("https://github.com")) {
+        return source.replace(/\s/g, "");
+      }
+      // remove quotes from the source
+      if (source.includes('"')) {
+        return source.replace(/"/g, "");
+      }
+      // if source includes On-demand Ride hailing, Unreserved Ticket Booking, Airlines Booking, Hotel Booking, Unreserved Entry Pass, then remove them from the sources  array
+      if (
+        source.includes("On-demand Ride hailing") ||
+        source.includes("Unreserved Ticket Booking") ||
+        source.includes("Airlines Booking") ||
+        source.includes("Hotel Booking") ||
+        source.includes("Unreserved Entry Pass")
+      ) {
+        return "";
+      }
+      return source;
+    });
     sourcesArray = sourcesArray.filter((source) => source !== "");
     return sourcesArray;
   }
