@@ -69,6 +69,11 @@ const model = new ChatVertexAI({
   safetySettings: safetySettings,
 });
 const pdf_parse = require("pdf-parse");
+const officeParser = require('officeparser');
+const axios = require('axios');
+const jsdom = require('jsdom');
+const MarkdownIt = require('markdown-it');
+const { JSDOM } = jsdom;
 
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
@@ -119,7 +124,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle_copy")
+            .table("ondc_gemini_copy")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -135,10 +140,10 @@ class PineconeService {
   async pushTextDataToBigQuery() {
     const texts = [
       {
-        context: "The MD and CEO of ONDC is T Koshy",
-        title: "All About Open Network for Digital Commerce",
-        source: "https://ondc.org/about-ondc/",
-      },
+        context: "This is from file: FIS(FAQs).pdf, Content: Swagger Link for FIS: https://ondc-official.github.io/ONDC-FIS-Specifications/#/feature",
+        title: "FIS(FAQs).pdf",
+        source: "FIS(FAQs).pdf"
+        }
     ];
 
     for (const text of texts) {
@@ -171,13 +176,14 @@ class PineconeService {
             id: doc.id,
             source: text.source,
             title: text.title,
-            context: `This is from url: ${text.source}, content: ${doc.pageContent}`,
+            context: text.context,
+            //context: `This is from url: ${text.source}, content: ${doc.pageContent}`,
             embedding: embeddings[index],
           }));
           console.log("rows", rows);
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .table("ondc_gemini_copy")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -188,32 +194,146 @@ class PineconeService {
     return "Completed";
   }
 
+  async fetchMarkdownFile(url) {
+      try {
+          const response = await axios.get(url);
+          const rawContent = response.data;
+          const md = new MarkdownIt();
+          const htmlContent = md.render(rawContent);
+          const dom = new JSDOM(htmlContent);
+          const document = dom.window.document;
+          const textContent = document.body.textContent.trim();
+
+          return {
+              context: textContent,
+              title: "", 
+              source: url 
+          };
+      } catch (error) {
+          console.error(`Error fetching the Markdown file: ${error.message}`);
+      }
+  }
+
+  // async pushTextDataToBigQuery() {
+  //   const githubMarkdownUrl = 'https://github.com/ONDC-Official/developer-docs/blob/main/registry/Onboarding%20of%20Participants.md';
+  //   const markdownData = await this.fetchMarkdownFile(githubMarkdownUrl);
+  //   console.log("markdownData", markdownData);
+
+  //   const texts = [
+  //       {
+  //           context: markdownData.context,
+  //           title: "Onboarding of Network Participants",
+  //           source: markdownData.source,
+  //       }
+  //   ];
+
+  //   for (const text of texts) {
+  //       try {
+  //           console.log("Processing text from source:", text.source);
+
+  //           const splitter = new RecursiveCharacterTextSplitter({
+  //               chunkSize: 5000,
+  //               chunkOverlap: 500,
+  //           });
+
+  //           const docs = await splitter.createDocuments([text.context]);
+  //           docs.forEach((doc) => {
+  //               doc.id = uuidv4();
+  //           });
+
+  //           const batch_size = 100;
+  //           for (let i = 0; i < docs.length; i += batch_size) {
+  //               const i_end = Math.min(docs.length, i + batch_size);
+  //               const meta_batch = docs.slice(i, i_end);
+  //               const texts_batch = meta_batch.map((x) => x.pageContent);
+
+  //               texts_batch.forEach((text, index) => {
+  //                   console.log(`Text content at index ${index}:`, text);
+  //                   console.log(`Length of text content at index ${index}:`, text.length);
+  //                   if (!text.trim()) {
+  //                       console.warn(`Skipping empty text content at index ${index}`);
+  //                   }
+  //               });
+  //               const filteredTextsBatch = texts_batch.filter(text => text && text.trim());
+
+  //               if (filteredTextsBatch.length === 0) {
+  //                   console.warn('No valid text content to process in this batch.');
+  //                   continue;
+  //               }
+  //               const embeddings = await Promise.all(
+  //                   filteredTextsBatch.map(async (text) => {
+  //                       if (!text.trim()) {
+  //                           console.error('Skipping empty text content');
+  //                           return null;  // Handle empty text by returning null or skipping
+  //                       }
+  //                       try {
+  //                           return await this.callPredict(text, "RETRIEVAL_DOCUMENT");
+  //                       } catch (error) {
+  //                           console.error(`Error calling predict for text: ${text}`, error);
+  //                           return null;
+  //                       }
+  //                   })
+  //               );
+
+  //               // Handle cases where embeddings might be null or empty
+  //               const rows = meta_batch.map((doc, index) => ({
+  //                   id: doc.id,
+  //                   source: text.source,
+  //                   title: text.title,
+  //                   context: `This is from url: ${text.source}, content: ${doc.pageContent}`,
+  //                   embedding: embeddings[index] || [],  // Default to empty array if null
+  //               }));
+
+  //               console.log("rows", rows);
+  //               // await bigquery
+  //               //     .dataset("ondc_dataset")
+  //               //     .table("ondc_gemini_copy")
+  //               //     .insert(rows);
+
+  //               console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
+  //           }
+  //       } catch (error) {
+  //           console.error("Error processing text:", error);
+  //       }
+  //   }
+  //   return "Completed";
+  // }
+
   async pushDocumentsToBigQuery(files) {
     const fileData = files;
 
     for (const file of fileData) {
       try {
-        const pdfData = await pdf_parse(file.buffer);
-        let formattedText = pdfData.text;
-        // let formattedText = await this.formatTextOpenAI(pdfData.text);
+        // const pdfData = await pdf_parse(file.buffer);
+        // let formattedText = pdfData.text;
+        const jsonData = JSON.parse(file.buffer.toString());
+        const pdfData = JSON.stringify(jsonData);
+        console.log("file", file)
+        //const pdfData = await officeParser.parseOfficeAsync(file.buffer)
+        // let pdfData = await this.formatTextOpenAI(pdfData);
+        console.log("formattedText", pdfData)
+
+        //file.originalname = file.originalname.replace('.docx', '.pdf');
 
         const splitter = new RecursiveCharacterTextSplitter({
           chunkSize: 5000,
           chunkOverlap: 500,
         });
-        const docs = await splitter.createDocuments([formattedText]);
+        const docs = await splitter.createDocuments([pdfData]);
+        console.log("docs", docs)
         docs.forEach((doc) => {
           doc.id = uuidv4();
         });
-
+        console.log("sdfghjkl")
         const batch_size = 100;
         for (let i = 0; i < docs.length; i += batch_size) {
           const i_end = Math.min(docs.length, i + batch_size);
           const meta_batch = docs.slice(i, i_end);
           const ids_batch = meta_batch.map((x) => x.id);
           const texts_batch = meta_batch.map((x) => ({
-            content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`,
+            content: `This is from Mobility Swagger application: "https://ondc-official.github.io/mobility-specification/#swagger", For Unreserved Entry Pass (heritage sights, museums, concerts, etc) - version: draft-TRV14-2.0.0 , Content: ${x.pageContent}`,
           }));
+          console.log("texts_batch", texts_batch)
           const embeddings = await this.getEmbeddingsBatch(
             texts_batch,
             file.originalname
@@ -221,14 +341,16 @@ class PineconeService {
           const rows = meta_batch.map((doc, index) => ({
             id: doc.id,
             embedding: embeddings[index],
-            context: `This is from file: ${file.originalname} , Content: ${doc.pageContent}`,
-            source: file.originalname,
-            title: file.originalname,
+            //For Unreserved Entry Pass (heritage sights, museums, concerts, etc), select version : draft-TRV14-2.0.0
+            context: `This is from Mobility Swagger application: "https://ondc-official.github.io/mobility-specification/#swagger", For Unreserved Entry Pass (heritage sights, museums, concerts, etc) - version: draft-TRV14-2.0.0 , Content: ${doc.pageContent}`,
+            source: "https://ondc-official.github.io/mobility-specification/#swagger",
+            title: "Mobility Swagger Application For Unreserved Entry Pass (heritage sights, museums, concerts, etc) - version: draft-TRV14-2.0.0",
           }));
+          console.log("rows", rows)
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle_copy")
+            .table("ondc_gemini_latest")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -244,6 +366,127 @@ class PineconeService {
     }
     return "Completed";
   }
+
+  // async pushDocumentsToBigQuery(files) {
+  //   const fileData = files;
+
+  //   for (const file of fileData) {
+  //     try {
+  //       const pdfData = await pdf_parse(file.buffer);
+  //       let formattedText = pdfData.text;
+  //       // let formattedText = await this.formatTextOpenAI(pdfData.text);
+
+  //       const splitter = new RecursiveCharacterTextSplitter({
+  //         chunkSize: 5000,
+  //         chunkOverlap: 500,
+  //       });
+  //       const docs = await splitter.createDocuments([formattedText]);
+  //       docs.forEach((doc) => {
+  //         doc.id = uuidv4();
+  //       });
+
+  //       const batch_size = 100;
+  //       for (let i = 0; i < docs.length; i += batch_size) {
+  //         const i_end = Math.min(docs.length, i + batch_size);
+  //         const meta_batch = docs.slice(i, i_end);
+  //         const ids_batch = meta_batch.map((x) => x.id);
+  //         const texts_batch = meta_batch.map((x) => ({
+  //           content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`,
+  //         }));
+  //         const embeddings = await this.getEmbeddingsBatch(
+  //           texts_batch,
+  //           file.originalname
+  //         );
+  //         const rows = meta_batch.map((doc, index) => ({
+  //           id: doc.id,
+  //           embedding: embeddings[index],
+  //           context: `This is from file: ${file.originalname} , Content: ${doc.pageContent}`,
+  //           source: "https://ondc-official.github.io/mobility-specification/#swagger",
+  //           title: "Mobility-Swagger",
+  //         }));
+
+  //         // await bigquery
+  //         //   .dataset("ondc_dataset")
+  //         //   .table("ondc_gemini_latest")
+  //         //   .insert(rows);
+  //         console.log("Successfully uploaded", i / 100);
+  //       }
+
+  //       console.log("File Processed:", file.originalname);
+  //     } catch (error) {
+  //       console.error(
+  //         "Error processing file:",
+  //         file.originalname,
+  //         error.message
+  //       );
+  //     }
+  //   }
+  //   return "Completed";
+  // }
+
+  // async pushDocumentsToBigQuery(files) {
+  //   const fileData = files;
+
+  //   for (const file of fileData) {
+  //     try {
+  //       // const pdfData = await pdf_parse(file.buffer);
+  //       // let formattedText = pdfData.text;
+  //       console.log("file", file)
+  //       //const pdfData = await officeParser.parseOfficeAsync(file.buffer)
+  //       // let pdfData = await this.formatTextOpenAI(pdfData);
+  //       console.log("formattedText", pdfData)
+
+  //       file.originalname = file.originalname.replace('.docx', '.xlsx');
+
+  //       const splitter = new RecursiveCharacterTextSplitter({
+  //         chunkSize: 5000,
+  //         chunkOverlap: 500,
+  //       });
+  //       const docs = await splitter.createDocuments([pdfData]);
+  //       docs.forEach((doc) => {
+  //         doc.id = uuidv4();
+  //       });
+
+  //       const batch_size = 100;
+  //       for (let i = 0; i < docs.length; i += batch_size) {
+  //         const i_end = Math.min(docs.length, i + batch_size);
+  //         const meta_batch = docs.slice(i, i_end);
+  //         const ids_batch = meta_batch.map((x) => x.id);
+  //         const texts_batch = meta_batch.map((x) => ({
+  //           content: `This is from file: ${file.originalname} , Content: ${x.pageContent}`,
+  //         }));
+  //         console.log("texts_batch", texts_batch)
+  //         const embeddings = await this.getEmbeddingsBatch(
+  //           texts_batch,
+  //           file.originalname
+  //         );
+  //         const rows = meta_batch.map((doc, index) => ({
+  //           id: doc.id,
+  //           embedding: embeddings[index],
+  //           context: `This is from file: ${file.originalname} , Content: ${doc.pageContent}`,
+  //           source: file.originalname,
+  //           title: file.originalname,
+  //         }));
+  //         console.log("rows", rows)
+
+  //         await bigquery
+  //           .dataset("ondc_dataset")
+  //           .table("ondc_gemini_latest")
+  //           .insert(rows);
+  //         console.log("Successfully uploaded", i / 100);
+  //       }
+
+  //       console.log("File Processed:", file.originalname);
+  //     } catch (error) {
+  //       console.error(
+  //         "Error processing file:",
+  //         file.originalname,
+  //         error.message
+  //       );
+  //     }
+  //   }
+  //   return "Completed";
+  // }
 
   async getEmbeddingsBatch(texts, file_name) {
     return Promise.all(
@@ -281,7 +524,7 @@ class PineconeService {
             id: doc.id,
             embedding: embeddings,
             questions: row.question,
-            feedback: "negative",
+            feedback: "positive",
           }));
           console.log("rows", rows);
           await bigquery
@@ -354,7 +597,7 @@ class PineconeService {
     try {
       let newQuestion = question;
       let newEmbedding = questionEmbedding;
-      const feedback = "positive";
+      let feedback = "positive";
       const [rows] = await bigquery.query({ query });
 
       for (const row of rows) {

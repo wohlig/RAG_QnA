@@ -28,15 +28,15 @@ const upload = multer()
 const validationSchema = {
   type: 'object',
   required: true,
-  properties: {
-  }
+  // properties: {
+  // }
 }
 const validation = (req, res, next) => {
   return validationOfAPI(req, res, next, validationSchema, 'body')
 }
 const pushWebsiteDataToPinecone = async (req, res) => {
   try {
-    const result = await PineconeService.pushWebsiteDataToBigQuery(req.body.urls)
+    const result = await PineconeService.pushTextDataToBigQuery()
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
     console.log('pushWebsiteDataToPinecone Error', err)
