@@ -331,7 +331,7 @@ class PineconeService {
           const meta_batch = docs.slice(i, i_end);
           const ids_batch = meta_batch.map((x) => x.id);
           const texts_batch = meta_batch.map((x) => ({
-            content: `This is from Mobility Swagger application: "https://ondc-official.github.io/mobility-specification/#swagger", For Unreserved Entry Pass (heritage sights, museums, concerts, etc) - version: draft-TRV14-2.0.0 , Content: ${x.pageContent}`,
+            content: `This is from FIS Swagger application: "https://ondc-official.github.io/ONDC-FIS-Specifications/#swagger", For Enhancement - version: draft-FIS14-enhancement , Content: ${x.pageContent}`,
           }));
           console.log("texts_batch", texts_batch)
           const embeddings = await this.getEmbeddingsBatch(
@@ -341,16 +341,16 @@ class PineconeService {
           const rows = meta_batch.map((doc, index) => ({
             id: doc.id,
             embedding: embeddings[index],
-            //For Unreserved Entry Pass (heritage sights, museums, concerts, etc), select version : draft-TRV14-2.0.0
-            context: `This is from Mobility Swagger application: "https://ondc-official.github.io/mobility-specification/#swagger", For Unreserved Entry Pass (heritage sights, museums, concerts, etc) - version: draft-TRV14-2.0.0 , Content: ${doc.pageContent}`,
-            source: "https://ondc-official.github.io/mobility-specification/#swagger",
-            title: "Mobility Swagger Application For Unreserved Entry Pass (heritage sights, museums, concerts, etc) - version: draft-TRV14-2.0.0",
+            // For Investments , select version : draft-FIS14-enhancement
+            context: `This is from FIS Swagger application: "https://ondc-official.github.io/ONDC-FIS-Specifications/#swagger", For Enhancement - version: draft-FIS14-enhancement , Content: ${doc.pageContent}`,
+            source: "https://ondc-official.github.io/ONDC-FIS-Specifications/#swagger",
+            title: "FIS Swagger Application For Enhancement - version: draft-FIS14-enhancement",
           }));
           console.log("rows", rows)
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_gemini_latest")
+            .table("ondc_gemini_latest_copy")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
