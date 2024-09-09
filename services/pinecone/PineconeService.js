@@ -391,9 +391,9 @@ class PineconeService {
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_gemini_latest,
+                        TABLE ondc_dataset.ondc_gemini_latest_copy,
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest),
+                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest_copy),
                         top_k => 20,
                         distance_type => 'COSINE'
                       ) `;

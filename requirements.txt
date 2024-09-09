@@ -1,0 +1,5 @@
+functions-framework==3.*
+google-cloud-storage==1.42.3
+google-cloud-bigquery==2.24.1
+google-cloud-functions
+vertexai

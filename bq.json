@@ -1,0 +1,57 @@
+[
+  { "name": "transcript", "type": "STRING" },
+  { "name": "introduction_score", "type": "INTEGER" },
+  { "name": "rapport_score", "type": "INTEGER" },
+  { "name": "needgen_score", "type": "INTEGER" },
+  { "name": "product_score", "type": "INTEGER" },
+  { "name": "closure_score", "type": "INTEGER" },
+  { "name": "total_score", "type": "INTEGER" },
+  { "name": "total_possible_points", "type": "INTEGER" },
+  {
+    "name": "intro_subpoints",
+    "type": "RECORD",
+    "mode": "REPEATED",
+    "fields": [
+      { "name": "metric", "type": "STRING" },
+      { "name": "points", "type": "INTEGER" }
+    ]
+  },
+  {
+    "name": "rapport_subpoints",
+    "type": "RECORD",
+    "mode": "REPEATED",
+    "fields": [
+      { "name": "metric", "type": "STRING" },
+      { "name": "points", "type": "INTEGER" }
+    ]
+  },
+  {
+    "name": "needgen_subpoints",
+    "type": "RECORD",
+    "mode": "REPEATED",
+    "fields": [
+      { "name": "metric", "type": "STRING" },
+      { "name": "points", "type": "INTEGER" }
+    ]
+  },
+  {
+    "name": "product_subpoints",
+    "type": "RECORD",
+    "mode": "REPEATED",
+    "fields": [
+      { "name": "metric", "type": "STRING" },
+      { "name": "points", "type": "INTEGER" }
+    ]
+  },
+  {
+    "name": "closure_subpoints",
+    "type": "RECORD",
+    "mode": "REPEATED",
+    "fields": [
+      { "name": "metric", "type": "STRING" },
+      { "name": "points", "type": "INTEGER" }
+    ]
+  },
+  { "name": "na_status", "type": "JSON" },
+  { "name": "rude_response", "type": "STRING" }
+]

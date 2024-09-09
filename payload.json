@@ -1,0 +1,19 @@
+{
+  "data": {
+    "name": "call-dummy.mp3",
+    "bucket": "pw-audio-transcripts-gcs-bucket",
+    "contentType": "audio/mpeg",
+    "metageneration": "1",
+    "timeCreated": "2020-04-23T07:38:57.230Z",
+    "updated": "2020-04-23T07:38:57.230Z"
+  },
+  "context": {
+    "eventId": "1234567890",
+    "eventType": "google.storage.object.finalize",
+    "resource": {
+      "name": "projects/_/buckets/pw-audio-transcripts-gcs-bucket/objects/call-dummy.mp3",
+      "service": "storage.googleapis.com"
+    },
+    "timestamp": "2020-04-23T07:38:57.230Z"
+  }
+}
