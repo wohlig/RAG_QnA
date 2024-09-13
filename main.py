@@ -181,7 +181,7 @@ def store_in_bigquery(
        "rapport_academic_performance_discussed": get_metric_score(rapport_metrics, "Did the counselor inquire about the student's academic performance (school, board, marks, language medium.)?"),
        "rapport_exam_preparation_strategy": get_metric_score(rapport_metrics, "Did the counselor explain the JEE/NEET exam preparation strategy to crack them?"),
        "rapport_challenges_asked": get_metric_score(rapport_metrics, "Did the counselor ask about any major challenges the student faces in exam preparation?"),
-       "rapport_tuition_attendance_discussed": get_metric_score(rapport_metrics, "Did the counselor ask if the student attends any tuition/coaching??"),
+       "rapport_tuition_attendance_discussed": get_metric_score(rapport_metrics, "Did the counselor ask if the student attends any tuition/coaching?"),
        "rapport_total_score": rapport_score,
        # Need Generation section
        "need_generation_na": sections_marked_na.get('Need Generation', False),
@@ -237,43 +237,43 @@ def Transcribe(gcs_file_name, bucket_name):
    transcription_prompt = """
 
 
-TASK:
-Transcribe the telephonic conversation strictly as is in Romanised Hindi (Latin Hindi text only) between a Student or their Parent and Counsellor from PhysicsWallah/PW in the format given below:
+    TASK:
+    Transcribe the telephonic conversation strictly as is in Romanised Hindi (Latin Hindi text only) between a Student or their Parent and Counsellor from PhysicsWallah/PW in the format given below:
 
 
-COUNSELLOR:
-STUDENT/PARENT:
+    COUNSELLOR:
+    STUDENT/PARENT:
 
 
-COUNSELLOR:
-STUDENT/PARENT:
+    COUNSELLOR:
+    STUDENT/PARENT:
 
 
-...and so on.
+    ...and so on.
 
 
-INSTRUCTIONS:
+    INSTRUCTIONS:
 
 
-1. IGNORE NOISE: Ignore any background noise, static, or irrelevant audio not related to the conversation between the Counsellor and the Student/Parent and don't show it in the final transcript.
+    1. IGNORE NOISE: Ignore any background noise, static, or irrelevant audio not related to the conversation between the Counsellor and the Student/Parent and don't show it in the final transcript.
 
 
-2. STRICT LATIN HINDI ONLY: Transcribe the conversation strictly in Latin Hindi (Romanised Hindi text). Do not use Devanagari script or any other language.
+    2. STRICT LATIN HINDI ONLY: Transcribe the conversation strictly in Latin Hindi (Romanised Hindi text). Do not use Devanagari script or any other language.
 
 
-3. ACCURACY IN SPEAKER IDENTIFICATION: Ensure that the speaker identification is accurate. You must not confuse which speaker (COUNSELLOR or STUDENT/PARENT) is saying what. Each speaker's lines should be correctly attributed.
+    3. ACCURACY IN SPEAKER IDENTIFICATION: Ensure that the speaker identification is accurate. You must not confuse which speaker (COUNSELLOR or STUDENT/PARENT) is saying what. Each speaker's lines should be correctly attributed.
 
 
-4. LABEL SPEAKERS: Clearly label each speaker (COUNSELLOR and STUDENT/PARENT) in the transcription as they speak. Do not mix or confuse the speakers’ lines. Every dialogue must be labelled as COUNSELLOR or STUDENT/PARENT. Don't give all dialogues of COUNSELLOR or that of STUDENT/PARENT together.
+    4. LABEL SPEAKERS: Clearly label each speaker (COUNSELLOR and STUDENT/PARENT) in the transcription as they speak. Do not mix or confuse the speakers’ lines. Every dialogue must be labelled as COUNSELLOR or STUDENT/PARENT. Don't give all dialogues of COUNSELLOR or that of STUDENT/PARENT together.
 
 
-5. EVERY DIALOGUE ON SINGLE LINE: Provide each dialogue on a single line. Don't club 2 dialogues together.
+    5. EVERY DIALOGUE ON SINGLE LINE: Provide each dialogue on a single line. Don't club 2 dialogues together.
 
 
-5. NO ADDITIONAL NOTES: Do not add any additional elements, notes, comments, or interpretations. The transcription should reflect only the spoken conversation as heard.
+    5. NO ADDITIONAL NOTES: Do not add any additional elements, notes, comments, or interpretations. The transcription should reflect only the spoken conversation as heard.
 
 
-"""
+    """
   
    generation_config = GenerationConfig(
        max_output_tokens=8192
@@ -299,37 +299,37 @@ def cleanTranscription(transcription):
 
 
    transcription_prompt = f"""
-TRANSCRIPTION: {transcription}
-TASK: Analyze the transcription of a conversation between a Counsellor and a Student/Parent, correcting any misattributions and ensuring logical flow. If the given transcript contains any numbers that are written in text format, then convert them in number format, for example, 'gyaarvi' becomes '11', 'barvi' becomes '12'. If you don't understand something, then let it be as it is. For example, if you come across a strange name, then let it be as it is. Also make sure the text of the transcript is in Romanised Hindi (Latin Hindi) ONLY.
+    TRANSCRIPTION: {transcription}
+    TASK: Analyze the transcription of a conversation between a Counsellor and a Student/Parent, correcting any misattributions and ensuring logical flow. If the given transcript contains any numbers that are written in text format, then convert them in number format, for example, 'gyaarvi' becomes '11', 'barvi' becomes '12'. If you don't understand something, then let it be as it is. For example, if you come across a strange name, then let it be as it is. Also make sure the text of the transcript is in Romanised Hindi (Latin Hindi) ONLY.
 
 
-INSTRUCTIONS:
+    INSTRUCTIONS:
 
 
-1. UNDERSTAND ROLES:
+    1. UNDERSTAND ROLES:
 
 
-COUNSELLOR: Uses formal language, provides guidance, answers questions, offers solutions, expresses gratitude, or ends the conversation formally.
-STUDENT/PARENT: Asks questions, provides information, expresses concerns, seeks clarification, or responds to the Counsellor.
+    COUNSELLOR: Uses formal language, provides guidance, answers questions, offers solutions, expresses gratitude, or ends the conversation formally.
+    STUDENT/PARENT: Asks questions, provides information, expresses concerns, seeks clarification, or responds to the Counsellor.
 
 
-2. ANALYZE DIALOGUE:
-Review each dialogue and determine if it aligns with the speaker's role.
+    2. ANALYZE DIALOGUE:
+    Review each dialogue and determine if it aligns with the speaker's role.
 
 
-3. CHECK FLOW:
-Ensure the conversation flows logically, with coherent responses between the Counsellor and the Student/Parent.
+    3. CHECK FLOW:
+    Ensure the conversation flows logically, with coherent responses between the Counsellor and the Student/Parent.
 
 
-4. CORRECT MISATTRIBUTIONS:
-Reassign any lines to the correct speaker if misattributed. For example, closing statements should come from the Counsellor.
+    4. CORRECT MISATTRIBUTIONS:
+    Reassign any lines to the correct speaker if misattributed. For example, closing statements should come from the Counsellor.
 
 
-5. PROVIDE REVISED TRANSCRIPTION ONLY:
-Submit the corrected transcription without extra notes or formatting.
+    5. PROVIDE REVISED TRANSCRIPTION ONLY:
+    Submit the corrected transcription without extra notes or formatting.
 
 
-"""
+    """
   
    generation_config = GenerationConfig(
    max_output_tokens=8192)
@@ -1118,4 +1118,3 @@ def get_metric_score(metrics, metric_name):
            print("Got metric score", metric["score"])
            return metric["score"]
    return 0
-
