@@ -118,8 +118,8 @@ class PineconeService {
           }));
 
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle_copy")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -176,8 +176,8 @@ class PineconeService {
           }));
           console.log("rows", rows);
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -227,8 +227,8 @@ class PineconeService {
           }));
 
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle_copy")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -285,8 +285,8 @@ class PineconeService {
           }));
           console.log("rows", rows);
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_quest_emb")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_QUESTIONS_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded");
         }
@@ -345,9 +345,9 @@ class PineconeService {
     let query = `SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
     FROM
     VECTOR_SEARCH(
-      TABLE ondc_dataset.ondc_quest_emb,
+      TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_QUESTIONS_TABLE_ID},
       'embedding',
-        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_quest_emb),
+        (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_QUESTIONS_TABLE_ID}),
       top_k => 3,
       distance_type => 'COSINE'
     )`;
@@ -384,32 +384,17 @@ class PineconeService {
   async getRelevantContextsBigQuery(embedding) {
     const questionEmbedding = embedding;
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
-    // const sourcesArrayInString = `(${sourcesArray
-    //   .map((source) => `'${source}'`)
-    //   .join(", ")})`;
+
     let query = `SELECT DISTINCT base.context AS context,
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_gemini_latest,
+                        TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest),
+                          (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID}),
                         top_k => 20,
                         distance_type => 'COSINE'
                       ) `;
-    // if (sourcesArrayInString == "()") {
-    //   query = `SELECT DISTINCT base.context AS context,
-    //   base.source AS source
-    //   FROM 
-    //   VECTOR_SEARCH(
-    //     TABLE ondc_dataset.ondc_geminititle_copy,
-    //     'embedding',
-    //       (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle_copy),
-    //     top_k => 20,
-    //     distance_type => 'COSINE'
-    //   )
-    //   WHERE base.source IN ('${documentName}');`;
-    // }
     try {
       const [rows] = await bigquery.query({ query });
       const contexts = rows.map((row) => row.context);
@@ -553,31 +538,6 @@ class PineconeService {
   async askQna(question, prompt, sessionId) {
     try {
       let finalQuestion = question;
-      // const decision = await this.makeDecisionFromGemini(question);
-      // if (decision.answer == "Yes") {
-      //   finalQuestion = decision.newQuestion;
-      // }
-      // const versionLayer = await this.makeDecisionAboutVersionFromGemini(
-      //   finalQuestion
-      // );
-
-      // let documentName;
-      // let oldVersionArray = [];
-
-      // if (versionLayer.isVersion == "No") {
-      //   oldVersionArray = [
-      //     "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
-      //     "ONDC - API Contract for Logistics (v1.1.0).pdf",
-      //     "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
-      //     "ONDC - API Contract for Retail (v1.1.0).pdf",
-      //     "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
-      //     "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
-      //     "ONDC API Contract for IGM MVP v1.0.0.pdf",
-      //   ];
-      // } else {
-      //   documentName = versionLayer.documentName;
-      //   finalQuestion = versionLayer.newQuestion;
-      // }
       const { requestion, embedding, feedback } =
         await this.getRelevantQuestionsBigQuery(
           finalQuestion
@@ -663,58 +623,6 @@ class PineconeService {
     }
   }
 
-  // async streamAnswer(
-  //   finalPrompt,
-  //   context,
-  //   question,
-  //   sessionId,
-  //   questionToPushInChatHistory
-  // ) {
-  //   console.log("Stream Answer", question);
-  //   const newPrompt = ChatPromptTemplate.fromMessages([
-  //     ["system", finalPrompt],
-  //     new MessagesPlaceholder("chat_history"),
-  //     ["user", "{input}"],
-  //     // new MessagesPlaceholder("agent_scratchpad"),
-  //   ]);
-  //   const chatHistory = new ChatMessageHistory(chatHistoryONDC.slice(-6));
-  //   const existingMemory = new BufferMemory({
-  //     chatHistory: chatHistory,
-  //     returnMessages: true,
-  //     memoryKey: "chat_history",
-  //   });
-  //   const llmChain = new ConversationChain({
-  //     llm: model,
-  //     memory: existingMemory,
-  //     prompt: newPrompt,
-  //   });
-  //   const responseStream = await llmChain.stream({
-  //     input:
-  //       finalPrompt +
-  //       "\n" +
-  //       `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
-  //   });
-  //   let finalResponse = "";
-  //   if (sessionId) {
-  //     for await (const response of responseStream) {
-  //       // console.log("This is response", response)
-  //       finalResponse += response.response;
-  //       console.log("response", response.response);
-  //       io.to(sessionId).emit("response", response.response);
-  //     }
-  //     console.log("Done");
-  //   }
-  //   chatHistoryONDC.push(
-  //     new HumanMessage(questionToPushInChatHistory),
-  //     new AIMessage(finalResponse)
-  //   );
-  //   chatHistoryDummy.push({
-  //     question: questionToPushInChatHistory,
-  //     answer: finalResponse,
-  //   });
-  //   console.log("finalResponse", finalResponse);
-  //   return finalResponse;
-  // }
   async streamAnswer(finalPrompt, context, question, sessionId) {
     const answerStream = await model.stream(
       finalPrompt +
@@ -733,6 +641,7 @@ class PineconeService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
+
   async directAnswer(
     finalPrompt,
     context,
@@ -755,6 +664,7 @@ class PineconeService {
     });
     return response.content;
   }
+
   async getSources(question, context) {
     const sourcesmodel = new ChatVertexAI({
       authOptions: {
