@@ -87,8 +87,8 @@ class PineconeService {
           }));
 
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -137,8 +137,8 @@ class PineconeService {
           }));
 
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -176,9 +176,9 @@ class PineconeService {
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_geminititle,
+                        TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
+                          (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
                         top_k => 20,
                         distance_type => 'COSINE'
                       ) 
@@ -188,9 +188,9 @@ class PineconeService {
       base.source AS source
       FROM 
       VECTOR_SEARCH(
-        TABLE ondc_dataset.ondc_geminititle,
+        TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
         'embedding',
-          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
+          (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
         top_k => 20,
         distance_type => 'COSINE'
       )

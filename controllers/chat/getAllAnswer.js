@@ -107,7 +107,7 @@ const express = require('express');
 const router = express.Router();
 const { GoogleAuth } = require('google-auth-library');
 const { google } = require('googleapis');
-const PineconeService = require('../../services/pinecone/PineconeService');
+const PineconeService = require('../../services/bigquery/bigQueryService');
 const __constants = require('../../config/constants');
 const validationOfAPI = require('../../middlewares/validation');
 
