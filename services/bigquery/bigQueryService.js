@@ -4,13 +4,9 @@ const keys = process.env.GOOGLE_SECRETS;
 fs.writeFileSync(path.join(__dirname, "keys.json"), keys);
 const keys2 = process.env.GOOGLE_VERTEX_SECRETS;
 fs.writeFileSync("./vertexkeys.json", keys2);
-const { GoogleGenerativeAI, FunctionDeclarationSchemaType } = require("@google/generative-ai");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence } = require("@langchain/core/runnables");
 const { ChatPromptTemplate, MessagesPlaceholder } = require("@langchain/core/prompts");
-
-// Access your API key as an environment variable
-// const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const __constants = require("../../config/constants");
 const { compile } = require("html-to-text");
 const { v4: uuidv4 } = require("uuid");
@@ -117,8 +113,8 @@ class PineconeService {
           }));
 
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -167,8 +163,8 @@ class PineconeService {
           }));
 
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -206,9 +202,9 @@ class PineconeService {
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_geminititle,
+                        TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
+                          (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},),
                         top_k => 20,
                         distance_type => 'COSINE'
                       ) 
@@ -218,9 +214,9 @@ class PineconeService {
       base.source AS source
       FROM 
       VECTOR_SEARCH(
-        TABLE ondc_dataset.ondc_geminititle,
+        TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
         'embedding',
-          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle),
+          (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},),
         top_k => 20,
         distance_type => 'COSINE'
       )
@@ -501,24 +497,6 @@ class PineconeService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
-  // async streamAnswer(finalPrompt, context, question, sessionId) {
-  //   const answerStream = await model.stream(
-  //     finalPrompt +
-  //       "\n" +
-  //       `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
-  //   );
-  //   let finalResponse = "";
-  //   if (sessionId) {
-  //     for await (const response of answerStream) {
-  //       finalResponse += response.content;
-  //       console.log("response", response.content);
-  //       io.to(sessionId).emit("response", response.content);
-  //     }
-  //     console.log("Done");
-  //   }
-  //   console.log("finalResponse", finalResponse);
-  //   return finalResponse;
-  // }
   async directAnswer(finalPrompt, context, question) {
     console.log("Direct Answer")
     const response = await model.invoke(
