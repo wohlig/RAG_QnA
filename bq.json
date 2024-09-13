@@ -1,57 +1,202 @@
 [
-  { "name": "transcript", "type": "STRING" },
-  { "name": "introduction_score", "type": "INTEGER" },
-  { "name": "rapport_score", "type": "INTEGER" },
-  { "name": "needgen_score", "type": "INTEGER" },
-  { "name": "product_score", "type": "INTEGER" },
-  { "name": "closure_score", "type": "INTEGER" },
-  { "name": "total_score", "type": "INTEGER" },
-  { "name": "total_possible_points", "type": "INTEGER" },
   {
-    "name": "intro_subpoints",
-    "type": "RECORD",
-    "mode": "REPEATED",
-    "fields": [
-      { "name": "metric", "type": "STRING" },
-      { "name": "points", "type": "INTEGER" }
-    ]
+    "name": "transcription",
+    "type": "STRING",
+    "mode": "NULLABLE"
   },
   {
-    "name": "rapport_subpoints",
-    "type": "RECORD",
-    "mode": "REPEATED",
-    "fields": [
-      { "name": "metric", "type": "STRING" },
-      { "name": "points", "type": "INTEGER" }
-    ]
+    "name": "fileName",
+    "type": "STRING",
+    "mode": "NULLABLE"
   },
   {
-    "name": "needgen_subpoints",
-    "type": "RECORD",
-    "mode": "REPEATED",
-    "fields": [
-      { "name": "metric", "type": "STRING" },
-      { "name": "points", "type": "INTEGER" }
-    ]
+    "name": "na_scenarios",
+    "type": "JSON",
+    "mode": "NULLABLE"
   },
   {
-    "name": "product_subpoints",
-    "type": "RECORD",
-    "mode": "REPEATED",
-    "fields": [
-      { "name": "metric", "type": "STRING" },
-      { "name": "points", "type": "INTEGER" }
-    ]
+    "name": "rude_status",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
   },
   {
-    "name": "closure_subpoints",
-    "type": "RECORD",
-    "mode": "REPEATED",
-    "fields": [
-      { "name": "metric", "type": "STRING" },
-      { "name": "points", "type": "INTEGER" }
-    ]
+    "name": "rude_description",
+    "type": "STRING",
+    "mode": "NULLABLE"
   },
-  { "name": "na_status", "type": "JSON" },
-  { "name": "rude_response", "type": "STRING" }
+  {
+    "name": "introduction_na",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "introduction_counselor_introduced",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "introduction_acknowledged_interest",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "introduction_app_download_confirmed",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "introduction_called_for_guidance",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "introduction_pw_brand_explained",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "introduction_total_score",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "rapport_na",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "rapport_study_routine_discussed",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "rapport_academic_performance_discussed",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "rapport_exam_preparation_strategy",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "rapport_challenges_asked",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "rapport_tuition_attendance_discussed",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "rapport_total_score",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "need_generation_na",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "need_generation_course_explained",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "need_generation_concept_clarity",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "need_generation_study_strategy_emphasized",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "need_generation_revision_doubt_solving",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "need_generation_preparation_challenges_addressed",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "need_generation_total_score",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_pitch_na",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_pitch_batch_details_explained",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_pitch_batch_addons_explained",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_pitch_student_queries_handled",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_pitch_support_options_explained",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_pitch_fees_structure_explained",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_pitch_total_score",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "closure_na",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "closure_urgency_for_enrollment",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "closure_objections_handled",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "closure_successful_call_closure",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "closure_total_score",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "total_score",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "total_possible_points",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  }
 ]
