@@ -3,7 +3,7 @@ const router = express.Router()
 const __constants = require('../../config/constants')
 const validationOfAPI = require('../../middlewares/validation')
 // const cache = require('../../../middlewares/requestCacheMiddleware')
-const PineconeService = require('../../services/bigquery/PineconeService')
+const BigQueryService = require('../../services/bigquery/BigQueryService')
 const multer = require('multer')
   const upload = multer()
 
@@ -37,7 +37,7 @@ const validation = (req, res, next) => {
 const askQna = async (req, res) => {
   try {
     console.log('askQna req.body', req.body)
-    const result = await PineconeService.askQna(req.body.question, req.body.prompt, req.body.sessionId)
+    const result = await BigQueryService.askQna(req.body.question, req.body.prompt, req.body.sessionId)
     result.question = req.body.question
     console.log('askQna result', result)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })

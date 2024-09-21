@@ -2,10 +2,7 @@ const express = require('express')
 const router = express.Router()
 const __constants = require('../../config/constants')
 const validationOfAPI = require('../../middlewares/validation')
-// const cache = require('../../../middlewares/requestCacheMiddleware')
-const BigQueryService = require('../../services/bigquery/bigQueryService')
-const multer = require('multer')
-const upload = multer()
+const FeedbackService = require('../../services/bigquery/feedbackService')
 
 /**
  * @namespace -GNEWS-MODULE-
@@ -34,12 +31,12 @@ const validationSchema = {
 const validation = (req, res, next) => {
   return validationOfAPI(req, res, next, validationSchema, 'body')
 }
-const pushWebsiteDataToBigQuery = async (req, res) => {
+const updateChatStatus = async (req, res) => {
   try {
-    const result = await BigQueryService.pushWebsiteDataToBigQuery(req.body.urls)
+    const result = await FeedbackService.updateStatus(req.body.id, req.body.status)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
-    console.log('pushWebsiteDataToBigQuery Error', err)
+    console.log('updateChatStatus Error', err)
     return res.sendJson({
       type: err.type || __constants.RESPONSE_MESSAGES.SERVER_ERROR,
       err: err.err || err
@@ -47,5 +44,5 @@ const pushWebsiteDataToBigQuery = async (req, res) => {
   }
 }
 
-router.post('/pushWebsiteDataToBigQuery', validation, pushWebsiteDataToBigQuery)
+router.post('/updateChatStatus', validation, updateChatStatus)
 module.exports = router

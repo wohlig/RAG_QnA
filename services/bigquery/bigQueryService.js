@@ -69,8 +69,8 @@ const model = new ChatVertexAI({
   safetySettings: safetySettings,
 });
 const pdf_parse = require("pdf-parse");
-
-class PineconeService {
+const feedbackService = require("./feedbackService");
+class BigQueryService {
   async pushWebsiteDataToBigQuery(urls) {
     for (const url of urls) {
       try {
@@ -574,9 +574,15 @@ class PineconeService {
           this.getSources(requestion, context),
         ]);
       }
+      const bqdata = await feedbackService.saveFeedback({
+        question: finalQuestion,
+        response: answerStream,
+        sources: sourcesArray.join(", "),
+      });
       return {
         answer: answerStream,
         sources: sourcesArray,
+        id: bqdata.data.id,
       };
     } catch (error) {
       console.log("Error in askQna", error);
@@ -714,4 +720,4 @@ class PineconeService {
   }
 }
 
-module.exports = new PineconeService();
+module.exports = new BigQueryService();

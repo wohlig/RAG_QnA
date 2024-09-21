@@ -2,7 +2,7 @@
 // // const router = express.Router();
 // // const { GoogleAuth } = require('google-auth-library');
 // // const { google } = require('googleapis');
-// // const PineconeService = require('../../services/pinecone/PineconeService');
+// // const BigQueryService = require('../../services/bigquery/bigQueryService');
 // // const __constants = require('../../config/constants');
 // // const validationOfAPI = require('../../middlewares/validation');
 
@@ -78,7 +78,7 @@
 
 // //     // Get answers for each question
 // //     const answers = await Promise.all(questions.map(async (question) => {
-// //       const result = await PineconeService.askQna(question, req.body.prompt);
+// //       const result = await BigQueryService.askQna(question, req.body.prompt);
 // //       const sources = result.sources ? result.sources.join(', ') : 'No sources';
 // //       return [question, result.answer, sources];
 // //     }));
@@ -107,7 +107,7 @@ const express = require('express');
 const router = express.Router();
 const { GoogleAuth } = require('google-auth-library');
 const { google } = require('googleapis');
-const PineconeService = require('../../services/bigquery/bigQueryService');
+const BigQueryService = require('../../services/bigquery/bigQueryService');
 const __constants = require('../../config/constants');
 const validationOfAPI = require('../../middlewares/validation');
 
@@ -182,7 +182,7 @@ const askQnaFromSheet = async (req, res) => {
 
     // Get answers for each question
     const answers = await Promise.all(questions.map(async (question) => {
-      const result = await PineconeService.askQna(question, prompt);
+      const result = await BigQueryService.askQna(question, prompt);
       const sources = result.sources ? result.sources.join(', ') : 'No sources';
       return [result.answer, sources];
     }));
