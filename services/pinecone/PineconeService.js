@@ -70,6 +70,8 @@ const model = new ChatVertexAI({
 });
 const pdf_parse = require("pdf-parse");
 
+const BigQueryService = require("../../services/bigquery/chatsFeedbackService");
+
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
     for (const url of urls) {
@@ -553,31 +555,6 @@ class PineconeService {
   async askQna(question, prompt, sessionId) {
     try {
       let finalQuestion = question;
-      // const decision = await this.makeDecisionFromGemini(question);
-      // if (decision.answer == "Yes") {
-      //   finalQuestion = decision.newQuestion;
-      // }
-      // const versionLayer = await this.makeDecisionAboutVersionFromGemini(
-      //   finalQuestion
-      // );
-
-      // let documentName;
-      // let oldVersionArray = [];
-
-      // if (versionLayer.isVersion == "No") {
-      //   oldVersionArray = [
-      //     "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
-      //     "ONDC - API Contract for Logistics (v1.1.0).pdf",
-      //     "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
-      //     "ONDC - API Contract for Retail (v1.1.0).pdf",
-      //     "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
-      //     "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
-      //     "ONDC API Contract for IGM MVP v1.0.0.pdf",
-      //   ];
-      // } else {
-      //   documentName = versionLayer.documentName;
-      //   finalQuestion = versionLayer.newQuestion;
-      // }
       const { requestion, embedding, feedback } =
         await this.getRelevantQuestionsBigQuery(
           finalQuestion
@@ -617,9 +594,17 @@ class PineconeService {
           this.getSources(requestion, context),
         ]);
       }
+      const bqData = await BigQueryService.saveFeedbackBatch({
+        question: finalQuestion,
+        response: answerStream,
+        sources: sourcesArray,
+        session_id: sessionId,
+        timestamp: new Date().toISOString(),
+      });
       return {
         answer: answerStream,
         sources: sourcesArray,
+        chatId: bqData.data.id,
       };
     } catch (error) {
       console.log("Error in askQna", error);
