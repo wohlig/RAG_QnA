@@ -230,7 +230,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle_copy")
+            .table("ondc_gemini_latest")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
