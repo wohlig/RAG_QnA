@@ -1,0 +1,39 @@
+[
+    {
+      "name": "document_name",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "document_link",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "last_updated",
+      "type": "TIMESTAMP",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "last_crawled",
+      "type": "TIMESTAMP",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "last_updated_by",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "type",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "status",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    }
+    
+  ]
+  
