@@ -13,7 +13,7 @@ fs.writeFileSync(path.join(__dirname, "keys.json"), keys);
 const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, "keys.json"),
 });
-
+ 
 const storage = new Storage({
   keyFilename: path.join(__dirname, "keys.json"),
 });
