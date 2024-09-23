@@ -198,7 +198,24 @@ class chatsFeedbackService {
       throw new Error(err);
     }
   }
+  async updateReadStatus(id) {
+    console.log(`Updating Read Status of chatId ${id}`)
+    const query = `UPDATE \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`
+                   SET read_status = 1
+                   WHERE id = @id`
+    const options = {
+      query: query,
+      params: { id },
+    };
 
+    try {
+      await bigquery.query(options);
+      return "Read Status Updated";
+    } catch (err) {
+      console.error("Error in updateReadStatus function:", err);
+      throw new Error(err);
+    }
+  }
   async getChatHistoryBySource(source) {
     console.log("Fetching chat history for source:", source);
 
@@ -210,7 +227,8 @@ class chatsFeedbackService {
             sources,              -- The sources associated with the chat
             feedback,             -- Feedback given by the user
             custom_status,        -- The custom status of the chat
-            timestamp          -- Timestamp for the last update
+            read_status,          -- The read status of the chat
+            timestamp             -- Timestamp for the last update
         FROM \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`,
         UNNEST(sources) AS source  -- Unnest the sources array into individual rows
         WHERE source = @source
