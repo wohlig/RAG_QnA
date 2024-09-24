@@ -32,9 +32,9 @@ const validation = (req, res, next) => {
     return validationOfAPI(req, res, next, validationSchema, 'body')
 }
 
-router.get('/summary-stats', validation, async (req, res) => {
+router.post('/summary-stats', validation, async (req, res) => {
     try {
-        const stats = await ChatsFeedbackService.getSummaryStats();
+        const stats = await ChatsFeedbackService.getSummaryStats(req.body.start_time, req.body.end_time);
         res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: stats });
     } catch (err) {
         console.log('Error fetching summary stats', err);

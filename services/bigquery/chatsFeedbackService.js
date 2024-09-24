@@ -108,7 +108,7 @@ class chatsFeedbackService {
       params: { chatId, feedback, description },
     });
   }
-  async getSummaryStats() {
+  async getSummaryStats(start_time, end_time) {
     const query = `
           SELECT 
               COUNT(DISTINCT session_id) AS total_sessions,
@@ -117,6 +117,7 @@ class chatsFeedbackService {
               SUM(CASE WHEN feedback = 0 THEN 1 ELSE 0 END) AS irrelevant,
               SUM(CASE WHEN feedback IS NULL THEN 1 ELSE 0 END) AS no_feedback
           FROM \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`
+          WHERE timestamp BETWEEN '${start_time}' AND '${end_time}'
       `;
     const [rows] = await bigquery.query(query);
     return rows.map((row) => ({
