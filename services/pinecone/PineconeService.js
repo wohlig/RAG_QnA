@@ -34,11 +34,12 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
-// const chatHistoryONDC = [];
-// const chatHistoryDummy = [];
+const chatHistoryONDC = [];
+const chatHistoryDummy = [];
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
 const { HumanMessage, AIMessage } = require("@langchain/core/messages");
 const { ConversationChain } = require("langchain/chains");
+
 const safetySettings = [
   {
     category: "HARM_CATEGORY_HARASSMENT",
@@ -496,7 +497,7 @@ class PineconeService {
       throw error;
     }
   }
-  async makeDecisionFromGemini(question) {
+  async makeDecisionFromGemini(question, chatHistoryRephrase) {
     const model = new ChatVertexAI({
       temperature: 0,
       model: "gemini-1.5-pro",
@@ -504,7 +505,7 @@ class PineconeService {
     });
 
     const structuredSchema = z.object({
-      answer: z.string().describe("'Yes' or 'No'"),
+      answer: z.string().describe("'Yes'"),
       newQuestion: z
         .string()
         .describe(
@@ -512,7 +513,7 @@ class PineconeService {
         ),
     });
 
-    let chatHistory = chatHistoryDummy.slice(-3);
+    let chatHistory = chatHistoryRephrase.slice(-3);
     let response
     if (chatHistory.length > 0) { 
       console.log(
@@ -521,7 +522,8 @@ class PineconeService {
       const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
       const chain = RunnableSequence.from([
         ChatPromptTemplate.fromTemplate(
-          `Analyze the given question and decide if it requires context from the previous conversation. Respond with "Yes" only if the question is clearly related to the previous conversation or requires the context to be understood correctly. If the question is standalone or unrelated, respond with "No". If 'Yes', rephrase the question using necessary context from the chat history and assign the 'newQuestion' field with this new framed question. Ensure the rephrased question is concise and directly incorporates relevant context without altering the original intent. If 'No', assign the 'newQuestion' field as an empty string ('').
+          `Analyze the provided chat history and the new question and rephrase the new question to include the necessary context from the chat history without altering its original intent. Assign this rephrased question to the variable newQuestion. But make sure the rephrased question does not need any previous context from the chat history, it must be a standalone question. Ensure the rephrased question is concise and directly incorporates relevant context.
+
             Question: {question}
             Chat History (Last three interactions): {chatHistory}
             Format Instructions: {format_instructions}`
@@ -529,11 +531,15 @@ class PineconeService {
         model,
         parser,
       ]);
+      let historyText = '';
+      for (const turn of chatHistory) {
+        historyText += `User: ${turn.question}\nAssistant: ${turn.answer}\n`;
+      }
 
       response = await chain.invoke({
         question: question,
         format_instructions: parser.getFormatInstructions(),
-        chatHistory: chatHistory,
+        chatHistory: historyText,
       });
       if (response.answer === "Yes") {
         console.log("Question is rephrased as: ", response);
@@ -552,9 +558,29 @@ class PineconeService {
     return response;
   }
 
-  async askQna(question, prompt, sessionId) {
+  async askQna(question, prompt, sessionId, chatHistory) {
     try {
+      if(!chatHistory){
+        chatHistory = []
+      }
+      const chatHistoryLangchain = []
+      const chatHistoryRephrase = chatHistory
+      for(const chat of chatHistory) {
+        chatHistoryLangchain.push(
+          new HumanMessage(chat.question),
+          new AIMessage(chat.answer)
+        );
+      }
+      console.log("Chat history Langchain", chatHistoryLangchain);
+      console.log("Chat history Rephrase", chatHistoryRephrase);
       let finalQuestion = question;
+      let decision
+      if(chatHistory && chatHistory.length > 0) {
+        decision = await this.makeDecisionFromGemini(question, chatHistoryRephrase);
+        if (decision.answer == "Yes") {
+          finalQuestion = decision.newQuestion;
+        }
+      }
       const { requestion, embedding, feedback } =
         await this.getRelevantQuestionsBigQuery(
           finalQuestion
@@ -574,22 +600,29 @@ class PineconeService {
       let sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(
-            finalPrompt,
-            context.contexts,
-            requestion,
-            sessionId,
-            finalQuestion
-          ),
-          this.getSources(requestion, context),
-        ]);
+          chatHistoryLangchain && chatHistoryLangchain.length > 0 
+              ? this.streamAnswer(
+                finalPrompt,
+                context.contexts,
+                requestion,
+                sessionId,
+                chatHistoryLangchain
+              )
+              : this.streamAnswerWithoutHistory(
+                finalPrompt,
+                context.contexts,
+                requestion,
+                sessionId
+              ), 
+          this.getSources(requestion, context)
+      ]);
       } else {
         [answerStream, sourcesArray] = await Promise.all([
           this.directAnswer(
             finalPrompt,
             context.contexts,
             requestion,
-            finalQuestion
+            chatHistoryLangchain
           ),
           this.getSources(requestion, context),
         ]);
@@ -605,6 +638,7 @@ class PineconeService {
         answer: answerStream,
         sources: sourcesArray,
         chatId: bqData.data.id,
+        questionToPushInChatHistory: requestion
       };
     } catch (error) {
       console.log("Error in askQna", error);
@@ -648,59 +682,60 @@ class PineconeService {
     }
   }
 
-  // async streamAnswer(
-  //   finalPrompt,
-  //   context,
-  //   question,
-  //   sessionId,
-  //   questionToPushInChatHistory
-  // ) {
-  //   console.log("Stream Answer", question);
-  //   const newPrompt = ChatPromptTemplate.fromMessages([
-  //     ["system", finalPrompt],
-  //     new MessagesPlaceholder("chat_history"),
-  //     ["user", "{input}"],
-  //     // new MessagesPlaceholder("agent_scratchpad"),
-  //   ]);
-  //   const chatHistory = new ChatMessageHistory(chatHistoryONDC.slice(-6));
-  //   const existingMemory = new BufferMemory({
-  //     chatHistory: chatHistory,
-  //     returnMessages: true,
-  //     memoryKey: "chat_history",
-  //   });
-  //   const llmChain = new ConversationChain({
-  //     llm: model,
-  //     memory: existingMemory,
-  //     prompt: newPrompt,
-  //   });
-  //   const responseStream = await llmChain.stream({
-  //     input:
-  //       finalPrompt +
-  //       "\n" +
-  //       `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
-  //   });
-  //   let finalResponse = "";
-  //   if (sessionId) {
-  //     for await (const response of responseStream) {
-  //       // console.log("This is response", response)
-  //       finalResponse += response.response;
-  //       console.log("response", response.response);
-  //       io.to(sessionId).emit("response", response.response);
-  //     }
-  //     console.log("Done");
-  //   }
-  //   chatHistoryONDC.push(
-  //     new HumanMessage(questionToPushInChatHistory),
-  //     new AIMessage(finalResponse)
-  //   );
-  //   chatHistoryDummy.push({
-  //     question: questionToPushInChatHistory,
-  //     answer: finalResponse,
-  //   });
-  //   console.log("finalResponse", finalResponse);
-  //   return finalResponse;
-  // }
-  async streamAnswer(finalPrompt, context, question, sessionId) {
+  async streamAnswer(
+    finalPrompt,
+    context,
+    question,
+    sessionId,
+    chatHistoryLangchain
+  ) {
+    console.log("Stream Answer", question);
+    const newPrompt = ChatPromptTemplate.fromMessages([
+      ["system", finalPrompt],
+      new MessagesPlaceholder("chat_history"),
+      ["user", "{input}"],
+      // new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+    const chatHistory = new ChatMessageHistory(chatHistoryLangchain.slice(-6));
+    const existingMemory = new BufferMemory({
+      chatHistory: chatHistory,
+      returnMessages: true,
+      memoryKey: "chat_history",
+    });
+    const llmChain = new ConversationChain({
+      llm: model,
+      memory: existingMemory,
+      prompt: newPrompt,
+    });
+    const responseStream = await llmChain.stream({
+      input:
+        finalPrompt +
+        "\n" +
+        `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
+    });
+    let finalResponse = "";
+    if (sessionId) {
+      for await (const response of responseStream) {
+        // console.log("This is response", response)
+        finalResponse += response.response;
+        console.log("response", response.response);
+        io.to(sessionId).emit("response", response.response);
+      }
+      console.log("Done");
+    }
+    // chatHistoryONDC.push(
+    //   new HumanMessage(questionToPushInChatHistory),
+    //   new AIMessage(finalResponse)
+    // );
+    // chatHistoryDummy.push({
+    //   question: questionToPushInChatHistory,
+    //   answer: finalResponse,
+    // });
+    console.log("finalResponse", finalResponse);
+    return finalResponse;
+  }
+  async streamAnswerWithoutHistory(finalPrompt, context, question, sessionId) {
+    console.log("Streaming answer without history")
     const answerStream = await model.stream(
       finalPrompt +
         "\n" +
@@ -722,7 +757,6 @@ class PineconeService {
     finalPrompt,
     context,
     question,
-    questionToPushInChatHistory
   ) {
     console.log("Direct Answer");
     const response = await model.invoke(
@@ -730,14 +764,14 @@ class PineconeService {
         "\n" +
         `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
     );
-    chatHistoryONDC.push(
-      new HumanMessage(questionToPushInChatHistory),
-      new AIMessage(response.content)
-    );
-    chatHistoryDummy.push({
-      question: questionToPushInChatHistory,
-      answer: response.content,
-    });
+    // chatHistoryONDC.push(
+    //   new HumanMessage(questionToPushInChatHistory),
+    //   new AIMessage(response.content)
+    // );
+    // chatHistoryDummy.push({
+    //   question: questionToPushInChatHistory,
+    //   answer: response.content,
+    // });
     return response.content;
   }
   async getSources(question, context) {
