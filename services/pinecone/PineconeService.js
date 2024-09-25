@@ -633,6 +633,7 @@ class PineconeService {
         sources: sourcesArray,
         session_id: sessionId,
         timestamp: new Date().toISOString(),
+        read_status: 0
       });
       return {
         answer: answerStream,
