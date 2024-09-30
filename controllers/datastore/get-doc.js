@@ -36,10 +36,12 @@ const validationSchema = {
 router.get('/get-documents', validation, async (req, res) => {
   try {
     const documents = await KnowledgeBaseService.getDocuments();
+    const refreshStatus = await KnowledgeBaseService.needsCrawling();
 
     res.sendJson({
       type: __constants.RESPONSE_MESSAGES.SUCCESS,
       data: documents,
+      refreshButtonEnabled: refreshStatus,
     });
   } catch (err) {
     console.error('Error retrieving documents from knowledge base:', err);
