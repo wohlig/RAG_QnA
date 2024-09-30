@@ -34,11 +34,12 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
-// const chatHistoryONDC = [];
-// const chatHistoryDummy = [];
+const chatHistoryONDC = [];
+const chatHistoryDummy = [];
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
 const { HumanMessage, AIMessage } = require("@langchain/core/messages");
 const { ConversationChain } = require("langchain/chains");
+
 const safetySettings = [
   {
     category: "HARM_CATEGORY_HARASSMENT",
@@ -69,6 +70,8 @@ const model = new ChatVertexAI({
   safetySettings: safetySettings,
 });
 const pdf_parse = require("pdf-parse");
+
+const BigQueryService = require("../../services/bigquery/chatsFeedbackService");
 
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
@@ -119,7 +122,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle_copy")
+            .table("ondc_gemini_latest")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -177,7 +180,7 @@ class PineconeService {
           console.log("rows", rows);
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle")
+            .table("ondc_gemini_latest")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -228,7 +231,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_geminititle_copy")
+            .table("ondc_gemini_latest")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -384,38 +387,35 @@ class PineconeService {
   async getRelevantContextsBigQuery(embedding) {
     const questionEmbedding = embedding;
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
-    // const sourcesArrayInString = `(${sourcesArray
-    //   .map((source) => `'${source}'`)
-    //   .join(", ")})`;
+
     let query = `SELECT DISTINCT base.context AS context,
-                      base.source AS source
-                      FROM
-                      VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_gemini_latest,
-                        'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest),
-                        top_k => 20,
-                        distance_type => 'COSINE'
-                      ) `;
-    // if (sourcesArrayInString == "()") {
-    //   query = `SELECT DISTINCT base.context AS context,
-    //   base.source AS source
-    //   FROM 
-    //   VECTOR_SEARCH(
-    //     TABLE ondc_dataset.ondc_geminititle_copy,
-    //     'embedding',
-    //       (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_geminititle_copy),
-    //     top_k => 20,
-    //     distance_type => 'COSINE'
-    //   )
-    //   WHERE base.source IN ('${documentName}');`;
-    // }
+    base.source AS source,
+    docs.document_link AS document_link,
+    docs.document_name AS document_name
+    FROM
+    VECTOR_SEARCH(
+      TABLE ondc_dataset.ondc_gemini_latest,
+      'embedding',
+        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest),
+      top_k => 20,
+      distance_type => 'COSINE'
+    )
+    LEFT JOIN \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_DOCUMENTS_TABLE_ID}\` AS docs
+    ON base.source = docs.document_name
+      `;
+
     try {
       const [rows] = await bigquery.query({ query });
       const contexts = rows.map((row) => row.context);
+      const sources = rows.map((row) => ({
+        source: row.source,
+        document_link: row.document_link,
+        document_name: row.document_name
+      }));
 
       return {
         contexts: contexts,
+        sources: sources,
       };
     } catch (error) {
       console.error("Error querying BigQuery:", error);
@@ -494,7 +494,7 @@ class PineconeService {
       throw error;
     }
   }
-  async makeDecisionFromGemini(question) {
+  async makeDecisionFromGemini(question, chatHistoryRephrase) {
     const model = new ChatVertexAI({
       temperature: 0,
       model: "gemini-1.5-pro",
@@ -502,7 +502,7 @@ class PineconeService {
     });
 
     const structuredSchema = z.object({
-      answer: z.string().describe("'Yes' or 'No'"),
+      answer: z.string().describe("'Yes'"),
       newQuestion: z
         .string()
         .describe(
@@ -510,16 +510,17 @@ class PineconeService {
         ),
     });
 
-    let chatHistory = chatHistoryDummy.slice(-3);
-    let response
-    if (chatHistory.length > 0) { 
+    let chatHistory = chatHistoryRephrase.slice(-3);
+    let response;
+    if (chatHistory.length > 0) {
       console.log(
         "Found chat history, making decision about rephrasing question"
       );
       const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
       const chain = RunnableSequence.from([
         ChatPromptTemplate.fromTemplate(
-          `Analyze the given question and decide if it requires context from the previous conversation. Respond with "Yes" only if the question is clearly related to the previous conversation or requires the context to be understood correctly. If the question is standalone or unrelated, respond with "No". If 'Yes', rephrase the question using necessary context from the chat history and assign the 'newQuestion' field with this new framed question. Ensure the rephrased question is concise and directly incorporates relevant context without altering the original intent. If 'No', assign the 'newQuestion' field as an empty string ('').
+          `Analyze the provided chat history and the new question and rephrase the new question to include the necessary context from the chat history without altering its original intent. Assign this rephrased question to the variable newQuestion. But make sure the rephrased question does not need any previous context from the chat history, it must be a standalone question. Ensure the rephrased question is concise and directly incorporates relevant context.
+
             Question: {question}
             Chat History (Last three interactions): {chatHistory}
             Format Instructions: {format_instructions}`
@@ -527,18 +528,21 @@ class PineconeService {
         model,
         parser,
       ]);
+      let historyText = "";
+      for (const turn of chatHistory) {
+        historyText += `User: ${turn.question}\nAssistant: ${turn.answer}\n`;
+      }
 
       response = await chain.invoke({
         question: question,
         format_instructions: parser.getFormatInstructions(),
-        chatHistory: chatHistory,
+        chatHistory: historyText,
       });
       if (response.answer === "Yes") {
         console.log("Question is rephrased as: ", response);
-      }
-      else {
+      } else {
         console.log("Question is not rephrased", response);
-        response.newQuestion = ''
+        response.newQuestion = "";
       }
     } else {
       console.log("No chat history found, skipping decision making");
@@ -550,60 +554,64 @@ class PineconeService {
     return response;
   }
 
-  async askQna(question, prompt, sessionId) {
+  async askQna(question, prompt, sessionId, chatHistory) {
     try {
-      let finalQuestion = question;
-      // const decision = await this.makeDecisionFromGemini(question);
-      // if (decision.answer == "Yes") {
-      //   finalQuestion = decision.newQuestion;
-      // }
-      // const versionLayer = await this.makeDecisionAboutVersionFromGemini(
-      //   finalQuestion
-      // );
-
-      // let documentName;
-      // let oldVersionArray = [];
-
-      // if (versionLayer.isVersion == "No") {
-      //   oldVersionArray = [
-      //     "ONDC - API Contract for Logistics (v1.1.0)_Final.pdf",
-      //     "ONDC - API Contract for Logistics (v1.1.0).pdf",
-      //     "ONDC - API Contract for Retail (v1.1.0)_Final.pdf",
-      //     "ONDC - API Contract for Retail (v1.1.0).pdf",
-      //     "ONDC API Contract for IGM (MVP) v1.0.0.docx.pdf",
-      //     "ONDC API Contract for IGM (MVP) v1.0.0.pdf",
-      //     "ONDC API Contract for IGM MVP v1.0.0.pdf",
-      //   ];
-      // } else {
-      //   documentName = versionLayer.documentName;
-      //   finalQuestion = versionLayer.newQuestion;
-      // }
-      const { requestion, embedding, feedback } =
-        await this.getRelevantQuestionsBigQuery(
-          finalQuestion
+      if (!chatHistory) {
+        chatHistory = [];
+      }
+      const chatHistoryLangchain = [];
+      const chatHistoryRephrase = chatHistory;
+      for (const chat of chatHistory) {
+        chatHistoryLangchain.push(
+          new HumanMessage(chat.question),
+          new AIMessage(chat.answer)
         );
+      }
+      console.log("Chat history Langchain", chatHistoryLangchain);
+      console.log("Chat history Rephrase", chatHistoryRephrase);
+      let finalQuestion = question;
+      let decision;
+      if (chatHistory && chatHistory.length > 0) {
+        decision = await this.makeDecisionFromGemini(
+          question,
+          chatHistoryRephrase
+        );
+        if (decision.answer == "Yes") {
+          finalQuestion = decision.newQuestion;
+        }
+      }
+      const { requestion, embedding, feedback } =
+        await this.getRelevantQuestionsBigQuery(finalQuestion);
       if (feedback === "negative") {
-        io.to(sessionId).emit("response", "Sorry, I am not able to answer this question");
+        io.to(sessionId).emit(
+          "response",
+          "Sorry, I am not able to answer this question"
+        );
         return {
           message: "Sorry, I am not able to answer this question",
           sources: [],
         };
       }
-      const context = await this.getRelevantContextsBigQuery(
-        embedding
-      );
+      const context = await this.getRelevantContextsBigQuery(embedding);
       let finalPrompt = await this.getPrompt(requestion, prompt);
       let answerStream;
       let sourcesArray;
       if (sessionId) {
         [answerStream, sourcesArray] = await Promise.all([
-          this.streamAnswer(
-            finalPrompt,
-            context.contexts,
-            requestion,
-            sessionId,
-            finalQuestion
-          ),
+          chatHistoryLangchain && chatHistoryLangchain.length > 0
+            ? this.streamAnswer(
+                finalPrompt,
+                context.contexts,
+                requestion,
+                sessionId,
+                chatHistoryLangchain
+              )
+            : this.streamAnswerWithoutHistory(
+                finalPrompt,
+                context.contexts,
+                requestion,
+                sessionId
+              ),
           this.getSources(requestion, context),
         ]);
       } else {
@@ -612,14 +620,33 @@ class PineconeService {
             finalPrompt,
             context.contexts,
             requestion,
-            finalQuestion
+            chatHistoryLangchain
           ),
           this.getSources(requestion, context),
         ]);
       }
+      const chatId = uuidv4();
+      const arrayMid = Math.floor(sourcesArray.length / 2);
+      BigQueryService.saveFeedbackBatch({
+        id: chatId,
+        question: finalQuestion,
+        response: answerStream,
+        sources:
+          (sourcesArray &&
+            sourcesArray.length == 1 &&
+            sourcesArray[0] && sourcesArray[0].source === "") ||
+          sourcesArray.length === 0
+            ? ["No Response"]
+            : sourcesArray.map((source) => source.source).slice(0, arrayMid),
+        session_id: sessionId,
+        timestamp: new Date().toISOString(),
+        read_status: 0,
+      }).catch((err) => console.error("Error saving to BigQuery:", err));
       return {
         answer: answerStream,
         sources: sourcesArray,
+        chatId: chatId,
+        questionToPushInChatHistory: requestion,
       };
     } catch (error) {
       console.log("Error in askQna", error);
@@ -663,59 +690,60 @@ class PineconeService {
     }
   }
 
-  // async streamAnswer(
-  //   finalPrompt,
-  //   context,
-  //   question,
-  //   sessionId,
-  //   questionToPushInChatHistory
-  // ) {
-  //   console.log("Stream Answer", question);
-  //   const newPrompt = ChatPromptTemplate.fromMessages([
-  //     ["system", finalPrompt],
-  //     new MessagesPlaceholder("chat_history"),
-  //     ["user", "{input}"],
-  //     // new MessagesPlaceholder("agent_scratchpad"),
-  //   ]);
-  //   const chatHistory = new ChatMessageHistory(chatHistoryONDC.slice(-6));
-  //   const existingMemory = new BufferMemory({
-  //     chatHistory: chatHistory,
-  //     returnMessages: true,
-  //     memoryKey: "chat_history",
-  //   });
-  //   const llmChain = new ConversationChain({
-  //     llm: model,
-  //     memory: existingMemory,
-  //     prompt: newPrompt,
-  //   });
-  //   const responseStream = await llmChain.stream({
-  //     input:
-  //       finalPrompt +
-  //       "\n" +
-  //       `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
-  //   });
-  //   let finalResponse = "";
-  //   if (sessionId) {
-  //     for await (const response of responseStream) {
-  //       // console.log("This is response", response)
-  //       finalResponse += response.response;
-  //       console.log("response", response.response);
-  //       io.to(sessionId).emit("response", response.response);
-  //     }
-  //     console.log("Done");
-  //   }
-  //   chatHistoryONDC.push(
-  //     new HumanMessage(questionToPushInChatHistory),
-  //     new AIMessage(finalResponse)
-  //   );
-  //   chatHistoryDummy.push({
-  //     question: questionToPushInChatHistory,
-  //     answer: finalResponse,
-  //   });
-  //   console.log("finalResponse", finalResponse);
-  //   return finalResponse;
-  // }
-  async streamAnswer(finalPrompt, context, question, sessionId) {
+  async streamAnswer(
+    finalPrompt,
+    context,
+    question,
+    sessionId,
+    chatHistoryLangchain
+  ) {
+    console.log("Stream Answer", question);
+    const newPrompt = ChatPromptTemplate.fromMessages([
+      ["system", finalPrompt],
+      new MessagesPlaceholder("chat_history"),
+      ["user", "{input}"],
+      // new MessagesPlaceholder("agent_scratchpad"),
+    ]);
+    const chatHistory = new ChatMessageHistory(chatHistoryLangchain.slice(-6));
+    const existingMemory = new BufferMemory({
+      chatHistory: chatHistory,
+      returnMessages: true,
+      memoryKey: "chat_history",
+    });
+    const llmChain = new ConversationChain({
+      llm: model,
+      memory: existingMemory,
+      prompt: newPrompt,
+    });
+    const responseStream = await llmChain.stream({
+      input:
+        finalPrompt +
+        "\n" +
+        `Context: ${context}\nQuestion: ${question}\nIf possible explain the answer with every detail possible`,
+    });
+    let finalResponse = "";
+    if (sessionId) {
+      for await (const response of responseStream) {
+        // console.log("This is response", response)
+        finalResponse += response.response;
+        console.log("response", response.response);
+        io.to(sessionId).emit("response", response.response);
+      }
+      console.log("Done");
+    }
+    // chatHistoryONDC.push(
+    //   new HumanMessage(questionToPushInChatHistory),
+    //   new AIMessage(finalResponse)
+    // );
+    // chatHistoryDummy.push({
+    //   question: questionToPushInChatHistory,
+    //   answer: finalResponse,
+    // });
+    console.log("finalResponse", finalResponse);
+    return finalResponse;
+  }
+  async streamAnswerWithoutHistory(finalPrompt, context, question, sessionId) {
+    console.log("Streaming answer without history");
     const answerStream = await model.stream(
       finalPrompt +
         "\n" +
@@ -733,26 +761,21 @@ class PineconeService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
-  async directAnswer(
-    finalPrompt,
-    context,
-    question,
-    questionToPushInChatHistory
-  ) {
+  async directAnswer(finalPrompt, context, question) {
     console.log("Direct Answer");
     const response = await model.invoke(
       finalPrompt +
         "\n" +
         `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
     );
-    chatHistoryONDC.push(
-      new HumanMessage(questionToPushInChatHistory),
-      new AIMessage(response.content)
-    );
-    chatHistoryDummy.push({
-      question: questionToPushInChatHistory,
-      answer: response.content,
-    });
+    // chatHistoryONDC.push(
+    //   new HumanMessage(questionToPushInChatHistory),
+    //   new AIMessage(response.content)
+    // );
+    // chatHistoryDummy.push({
+    //   question: questionToPushInChatHistory,
+    //   answer: response.content,
+    // });
     return response.content;
   }
   async getSources(question, context) {
@@ -764,31 +787,76 @@ class PineconeService {
       model: "gemini-1.5-pro",
       safetySettings: safetySettings,
     });
+
     const sourcesResponse = await sourcesmodel.invoke(
       `Below is a question and the context from which the answer is to be fetched. Your task is to accurately identify and return only the sources where the answer to the question is present. If the question mentions a specific version, only return the sources relevant to that version. Provide the sources exactly as they are given in the context, separated by commas, without any prefixes or suffixes. If there are no relevant sources for the question, do not return any unrelated sources, instead return an empty string ('').
-      
+  
       Important Notes:
-
+  
       1. Only return sources that contain the answer to the question.
       2. If a version is mentioned, filter the sources accordingly.
       3. Do not include any unrelated sources, instead return empty string ('').
-
+  
       \nQuestion: ${question}\nContext: ${context.contexts}`
     );
+
     console.log("Getting sources done");
 
     let sourcesArray = sourcesResponse.content.split(",");
     sourcesArray = sourcesArray.map((source) => source.trim());
     sourcesArray = [...new Set(sourcesArray)];
     sourcesArray = sourcesArray.filter((source) => source !== "");
-    // if any source is a github link, then remove all the spaces from the link
     sourcesArray = sourcesArray.map((source) => {
       if (source.includes("https://github.com")) {
         return source.replace(/\s/g, "");
       }
+      // remove quotes from the source
+      if (source.includes('"')) {
+        return source.replace(/"/g, "");
+      }
+      // if source includes On-demand Ride hailing, Unreserved Ticket Booking, Airlines Booking, Hotel Booking, Unreserved Entry Pass, then remove them from the sources  array
+      if (
+        source.includes("On-demand Ride hailing") ||
+        source.includes("Unreserved Ticket Booking") ||
+        source.includes("Airlines Booking") ||
+        source.includes("Hotel Booking") ||
+        source.includes("Unreserved Entry Pass")
+      ) {
+        return "";
+      }
       return source;
     });
-    return sourcesArray;
+    sourcesArray = sourcesArray.filter((source) => source !== "");
+
+    const validSources = [];
+
+    for (let source of sourcesArray) {
+      // Find the document_link for this source
+      const sourceObj = context.sources.find((s) => {
+        // Check if the source is a substring of the source in the context
+        return s.source.includes(source);
+      });
+  
+      if (source.startsWith('http')) {
+        // It's a website link, include it with type 'website'
+        validSources.push({
+          source: source,
+          type: 'website',
+        });
+      } else if (sourceObj && sourceObj.document_link) {
+        // It's a document, include source, document_link, and type 'document'
+        validSources.push({
+          source: sourceObj.source,
+          document_link: sourceObj.document_link,
+          type: 'document',
+        });
+      } else {
+        // Source not found, skip it
+        console.warn(`Source "${source}" not found in document mappings. Skipping.`);
+      }
+    }
+  
+    return validSources;
   }
 }
 
