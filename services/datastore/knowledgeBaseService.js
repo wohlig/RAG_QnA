@@ -526,7 +526,35 @@ class knowledgebaseService {
     }
   }
 
-
+  async needsCrawling() {
+    try {
+      const datasetId = process.env.BIG_QUERY_DATA_SET_ID;
+      const tableId = process.env.BIG_QUERY_DOCUMENTS_TABLE_ID;
+      const query = `
+        SELECT COUNT(*) as numDocuments
+        FROM \`${datasetId}.${tableId}\`
+        WHERE last_updated > last_crawled
+      `;
+      const options = {
+        query: query,
+        location: 'asia-south1', // Set to your dataset's location
+      };
+  
+      const [job] = await bigquery.createQueryJob(options);
+      const [rows] = await job.getQueryResults();
+      const numDocuments = rows[0].numDocuments;
+  
+      if (numDocuments > 0) {
+        return true;
+      } else {
+        return false;
+      }
+    } catch (err) {
+      console.error('Error in needsCrawling function:', err);
+      throw err;
+    }
+  }
+  
 }
 
 module.exports = new knowledgebaseService();
