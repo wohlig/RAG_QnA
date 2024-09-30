@@ -49,7 +49,7 @@ class chatsFeedbackService {
         custom_status: "under_review",
         session_id: data.session_id,
         timestamp: data.timestamp,
-        id: uuidv4(),
+        id: data.id
       };
 
       // Write the row data to a temporary JSON file for batch load
@@ -76,7 +76,7 @@ class chatsFeedbackService {
         .load(tempFilePath, {
           sourceFormat: "NEWLINE_DELIMITED_JSON",
         });
-      console.log(`Batch insert response:`, resp);
+      // console.log(`Batch insert response:`, resp);
 
       // Clean up the temporary file
       fs.unlinkSync(tempFilePath);
@@ -126,6 +126,9 @@ class chatsFeedbackService {
       relevant: row.relevant,
       irrelevant: row.irrelevant,
       noFeedback: row.no_feedback,
+      relevancePercent: ((row.relevant / row.total_questions) * 100).toFixed(2),
+      irrelevancePercent: ((row.irrelevant / row.total_questions) * 100).toFixed(2),
+      noFeedbackPercent: ((row.no_feedback / row.total_questions) * 100).toFixed(2),
     }))[0];
   }
   async getDetailStats(source) {
