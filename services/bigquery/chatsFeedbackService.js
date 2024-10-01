@@ -48,7 +48,7 @@ class chatsFeedbackService {
         session_id: data.session_id,
         timestamp: data.timestamp,
         id: data.id,
-        confidence_score: data.confidence_score,
+        confidence_socre: data.confidence_socre,
       };
 
       // Write the row data to a temporary JSON file for batch load
