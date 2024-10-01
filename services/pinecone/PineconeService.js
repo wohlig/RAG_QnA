@@ -638,7 +638,6 @@ class PineconeService {
         finalQuestion,
         answerStream
       );
-      console.log("Confidence Score", confidenceScore);
       const chatId = uuidv4();
       const arrayMid = Math.floor(sourcesArray.length / 2);
       BigQueryService.saveFeedbackBatch({
