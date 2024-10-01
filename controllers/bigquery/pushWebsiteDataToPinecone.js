@@ -3,9 +3,9 @@ const router = express.Router()
 const __constants = require('../../config/constants')
 const validationOfAPI = require('../../middlewares/validation')
 // const cache = require('../../../middlewares/requestCacheMiddleware')
-const PineconeService = require('../../services/pinecone/PineconeService')
+const BigQueryService = require('../../services/bigquery/BigQueryService')
 const multer = require('multer')
-  const upload = multer()
+const upload = multer()
 
 /**
  * @namespace -GNEWS-MODULE-
@@ -34,12 +34,12 @@ const validationSchema = {
 const validation = (req, res, next) => {
   return validationOfAPI(req, res, next, validationSchema, 'body')
 }
-const pushDocumentsToPinecone = async (req, res) => {
+const pushWebsiteDataToBigQuery = async (req, res) => {
   try {
-    const result = await PineconeService.pushDocumentsToBigQuery(req.files)
+    const result = await BigQueryService.pushWebsiteDataToBigQuery(req.body.urls)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
-    console.log('pushDocumentsToPinecone Error', err)
+    console.log('pushWebsiteDataToBigQuery Error', err)
     return res.sendJson({
       type: err.type || __constants.RESPONSE_MESSAGES.SERVER_ERROR,
       err: err.err || err
@@ -47,5 +47,5 @@ const pushDocumentsToPinecone = async (req, res) => {
   }
 }
 
-router.post('/pushDocumentsToPinecone', upload.array('files'), validation, pushDocumentsToPinecone)
+router.post('/pushWebsiteDataToBigQuery', validation, pushWebsiteDataToBigQuery)
 module.exports = router

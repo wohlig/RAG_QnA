@@ -11,8 +11,6 @@ const {
   MessagesPlaceholder,
 } = require("@langchain/core/prompts");
 
-// Access your API key as an environment variable
-// const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const __constants = require("../../config/constants");
 const { compile } = require("html-to-text");
 const { v4: uuidv4 } = require("uuid");
@@ -34,12 +32,10 @@ const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publi
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
-const chatHistoryONDC = [];
-const chatHistoryDummy = [];
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
 const { HumanMessage, AIMessage } = require("@langchain/core/messages");
 const { ConversationChain } = require("langchain/chains");
-const BigQueryService = require("../../services/bigquery/chatsFeedbackService");
+const BigQueryChatsService = require("../../services/bigquery/chatsFeedbackService");
 
 const safetySettings = [
   {
@@ -72,7 +68,7 @@ const model = new ChatVertexAI({
 });
 const pdf_parse = require("pdf-parse");
 
-class PineconeService {
+class BigQueryService {
   async pushWebsiteDataToBigQuery(urls) {
     for (const url of urls) {
       try {
@@ -120,8 +116,8 @@ class PineconeService {
           }));
 
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_gemini_latest")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -129,62 +125,6 @@ class PineconeService {
         console.log("URL Processed:", url);
       } catch (error) {
         console.error("Error processing URL:", url, error.message);
-      }
-    }
-    return "Completed";
-  }
-
-  async pushTextDataToBigQuery() {
-    const texts = [
-      {
-        context: "The MD and CEO of ONDC is T Koshy",
-        title: "All About Open Network for Digital Commerce",
-        source: "https://ondc.org/about-ondc/",
-      },
-    ];
-
-    for (const text of texts) {
-      try {
-        console.log("Processing text from source:", text.source);
-        const title = text.title;
-        console.log("title", title);
-        const splitter = new RecursiveCharacterTextSplitter({
-          chunkSize: 5000,
-          chunkOverlap: 500,
-        });
-        const docs = await splitter.createDocuments([text.context]);
-        docs.forEach((doc) => {
-          doc.id = uuidv4();
-        });
-
-        const batch_size = 100;
-        for (let i = 0; i < docs.length; i += batch_size) {
-          const i_end = Math.min(docs.length, i + batch_size);
-          const meta_batch = docs.slice(i, i_end);
-          const ids_batch = meta_batch.map((x) => x.id);
-          const texts_batch = meta_batch.map((x) => x.pageContent);
-
-          const embeddings = await Promise.all(
-            texts_batch.map((text) =>
-              this.callPredict(text, "RETRIEVAL_DOCUMENT")
-            )
-          );
-          const rows = meta_batch.map((doc, index) => ({
-            id: doc.id,
-            source: text.source,
-            title: text.title,
-            context: `This is from url: ${text.source}, content: ${doc.pageContent}`,
-            embedding: embeddings[index],
-          }));
-          console.log("rows", rows);
-          await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_gemini_latest")
-            .insert(rows);
-          console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
-        }
-      } catch (error) {
-        console.error("Error processing text:", error);
       }
     }
     return "Completed";
@@ -229,8 +169,8 @@ class PineconeService {
           }));
 
           await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_gemini_latest")
+            .dataset(process.env.BIG_QUERY_DATA_SET_ID)
+            .table(process.env.BIG_QUERY_TABLE_ID)
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -259,51 +199,8 @@ class PineconeService {
     );
   }
 
-  async createQuestEmbeddings(rows, sessionId) {
-    for (const row of rows) {
-      console.log("rowasddsa", row);
-      try {
-        const splitter = new RecursiveCharacterTextSplitter({
-          chunkSize: 5000,
-          chunkOverlap: 500,
-        });
-        const docs = await splitter.createDocuments([row.question]);
-        docs.forEach((doc) => {
-          doc.id = uuidv4();
-        });
-        for (let i = 0; i < docs.length; i += 1) {
-          const i_end = Math.min(docs.length, i + 1);
-          const meta_batch = docs.slice(i, i_end);
-          const embeddings = await this.callPredictForQues(
-            row.question,
-            "QUESTION_ANSWERING"
-          );
-
-          const rows = meta_batch.map((doc, index) => ({
-            id: doc.id,
-            embedding: embeddings,
-            questions: row.question,
-            feedback: "negative",
-          }));
-          console.log("rows", rows);
-          await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_quest_emb")
-            .insert(rows);
-          console.log("Successfully uploaded");
-        }
-      } catch (error) {
-        console.error("Error inserting rows into BigQuery:", error);
-        throw error;
-      }
-    }
-  }
-
   async callPredictForQues(text, task, title = "") {
-    console.log("task", task);
     try {
-      console.log("title>>>>>", title);
-      console.log("TEXTTTTT", text);
       let instances;
       if (task === "RETRIEVAL_DOCUMENT" && title) {
         instances = text
@@ -330,7 +227,7 @@ class PineconeService {
       }
       const embeddings = predictions[0].structValue.fields.embeddings;
       const values = embeddings.structValue.fields.values.listValue.values;
-      console.log("Embeddings creaetd");
+      console.log("Embeddings created");
       return values.map((value) => value.numberValue);
     } catch (error) {
       console.error("Error calling predict:", error);
@@ -347,9 +244,9 @@ class PineconeService {
     let query = `SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
     FROM
     VECTOR_SEARCH(
-      TABLE ondc_dataset.ondc_quest_emb,
+      TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_QUESTIONS_TABLE_ID},
       'embedding',
-        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_quest_emb),
+        (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_QUESTIONS_TABLE_ID}),
       top_k => 3,
       distance_type => 'COSINE'
     )`;
@@ -393,9 +290,9 @@ class PineconeService {
     docs.document_name AS document_name
     FROM
     VECTOR_SEARCH(
-      TABLE ondc_dataset.ondc_gemini_latest,
+      TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
       'embedding',
-        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest),
+        (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID}),
       top_k => 20,
       distance_type => 'COSINE'
     )
@@ -437,62 +334,7 @@ class PineconeService {
     }
     return prompt;
   }
-  async makeDecisionAboutVersionFromGemini(question) {
-    try {
-      console.log("Making Decision");
-      const model = new ChatVertexAI({
-        temperature: 0,
-        model: "gemini-1.5-pro",
-        safetySettings: safetySettings,
-      });
-      const structuredSchema = z.object({
-        isVersion: z.string().describe("'Yes' or 'No'"),
-        newQuestion: z.string().describe("the rephrased question"),
-        documentName: z.string().describe("exact name of the document"),
-      });
-      const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
 
-      const chain = RunnableSequence.from([
-        ChatPromptTemplate.fromTemplate(
-          `Given a list of document names with their latest version numbers, analyze the user's question to determine if it relates to a specific version. Recognize version numbers in formats like "v1.1", "v2.0", etc. Do not assume every alphanumeric combination as a version number. Any question related to "TRV11" or "TRV10" is not a version-related question.
-          Example: "How many flows are present in TRV11?" should not be treated as a version-related question just because it contains "V11" in it. Instead if there is a mention of "version 1.1" or "v1.2" or "v 1.2" in the user's question, then consider it as a version-related question. Do not consider TRV11, TRV10 or RET11 or ONDC:RET11 as a version-related question.
-          If unsure whether a query relates to a document version, return isVersion as "No" and rephrased question as empty string.
-          If question is related to a specific version, rephrase the question to include the exact document name. If not, return an empty string. 
-          Question: {question}
-          Document list:
-          [Fashion MVP [Addition to Retail MVP]-Draft-v0.3.pdf, MVP_ Electronics and Electrical Appliances_v 1.0.pdf, ONDC - API Contract for Logistics (v1.1.0)_Final.pdf, ONDC - API Contract for Logistics (v1.2.0).pdf, ONDC - API Contract for Retail (v1.1.0)_Final.pdf, ONDC - API Contract for Retail (v1.2.0).pdf, Test Case Scenarios - v1.1.0.pdf, ONDC API Contract for IGM_MVP_v1.0.0.pdf]
-          
-          Instructions:
-          1. Check if the user's question mentions a specific version.
-          2. Do not assume every alphanumeric combination is a version number
-          3. Also, return the exact name of the document from which the question was asked.
-          4. If unsure whether the question relates to a document version, do not rephrase it
-          5. If a version is mentioned in user's question:
-             a. Identify the corresponding document name from the list.
-             b. If no document found, return isVersion as 'No' and rephrased question as empty string
-             c. If document found, rephrase the question to include the exact document name.
-             d. Return the rephrased question along with the exact document name.
-          6. If no version is mentioned in the user's question, return newQuestion and documentName as an empty string.
-          
-          Format Instructions: {format_instructions}
-          `
-        ),
-        model,
-        parser,
-      ]);
-
-      const response = await chain.invoke({
-        question: question,
-        format_instructions: parser.getFormatInstructions(),
-      });
-
-      console.log("Descision about version: ", response);
-      return response;
-    } catch (error) {
-      console.error("Error invoking Gemini model:", error);
-      throw error;
-    }
-  }
   async makeDecisionFromGemini(question, chatHistoryRephrase) {
     const model = new ChatVertexAI({
       temperature: 0,
@@ -586,7 +428,7 @@ class PineconeService {
           "response",
           "Sorry, I am not able to answer this question"
         );
-        BigQueryService.saveFeedbackBatch({
+        BigQueryChatsService.saveFeedbackBatch({
           id: uuidv4(),
           question: question,
           response: "Sorry, I am not able to answer this question",
@@ -639,8 +481,9 @@ class PineconeService {
         answerStream
       );
       const chatId = uuidv4();
-      const arrayMid = sourcesArray.length > 1 ? Math.floor(sourcesArray.length / 2) : 1;
-      BigQueryService.saveFeedbackBatch({
+      const arrayMid =
+        sourcesArray.length > 1 ? Math.floor(sourcesArray.length / 2) : 1;
+      BigQueryChatsService.saveFeedbackBatch({
         id: chatId,
         question: question,
         response: answerStream,
@@ -717,7 +560,6 @@ class PineconeService {
       ["system", finalPrompt],
       new MessagesPlaceholder("chat_history"),
       ["user", "{input}"],
-      // new MessagesPlaceholder("agent_scratchpad"),
     ]);
     const chatHistory = new ChatMessageHistory(chatHistoryLangchain.slice(-6));
     const existingMemory = new BufferMemory({
@@ -739,24 +581,16 @@ class PineconeService {
     let finalResponse = "";
     if (sessionId) {
       for await (const response of responseStream) {
-        // console.log("This is response", response)
         finalResponse += response.response;
         console.log("response", response.response);
         io.to(sessionId).emit("response", response.response);
       }
       console.log("Done");
     }
-    // chatHistoryONDC.push(
-    //   new HumanMessage(questionToPushInChatHistory),
-    //   new AIMessage(finalResponse)
-    // );
-    // chatHistoryDummy.push({
-    //   question: questionToPushInChatHistory,
-    //   answer: finalResponse,
-    // });
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
+
   async streamAnswerWithoutHistory(finalPrompt, context, question, sessionId) {
     console.log("Streaming answer without history");
     const answerStream = await model.stream(
@@ -776,6 +610,7 @@ class PineconeService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
+
   async directAnswer(finalPrompt, context, question) {
     console.log("Direct Answer");
     const response = await model.invoke(
@@ -783,16 +618,9 @@ class PineconeService {
         "\n" +
         `Context: ${context}\nQuestion: ${question} and if possible explain the answer with every detail possible`
     );
-    // chatHistoryONDC.push(
-    //   new HumanMessage(questionToPushInChatHistory),
-    //   new AIMessage(response.content)
-    // );
-    // chatHistoryDummy.push({
-    //   question: questionToPushInChatHistory,
-    //   answer: response.content,
-    // });
     return response.content;
   }
+
   async getSources(question, context) {
     const sourcesmodel = new ChatVertexAI({
       authOptions: {
@@ -825,19 +653,8 @@ class PineconeService {
       if (source.includes("https://github.com")) {
         return source.replace(/\s/g, "");
       }
-      // remove quotes from the source
       if (source.includes('"')) {
         return source.replace(/"/g, "");
-      }
-      // if source includes On-demand Ride hailing, Unreserved Ticket Booking, Airlines Booking, Hotel Booking, Unreserved Entry Pass, then remove them from the sources  array
-      if (
-        source.includes("On-demand Ride hailing") ||
-        source.includes("Unreserved Ticket Booking") ||
-        source.includes("Airlines Booking") ||
-        source.includes("Hotel Booking") ||
-        source.includes("Unreserved Entry Pass")
-      ) {
-        return "";
       }
       return source;
     });
@@ -846,27 +663,22 @@ class PineconeService {
     const validSources = [];
 
     for (let source of sourcesArray) {
-      // Find the document_link for this source
       const sourceObj = context.sources.find((s) => {
-        // Check if the source is a substring of the source in the context
         return s.source.includes(source);
       });
 
       if (source.startsWith("http")) {
-        // It's a website link, include it with type 'website'
         validSources.push({
           source: source,
           type: "website",
         });
       } else if (sourceObj && sourceObj.document_link) {
-        // It's a document, include source, document_link, and type 'document'
         validSources.push({
           source: sourceObj.source,
           document_link: sourceObj.document_link,
           type: "document",
         });
       } else {
-        // Source not found, skip it
         console.warn(
           `Source "${source}" not found in document mappings. Skipping.`
         );
@@ -875,6 +687,7 @@ class PineconeService {
 
     return validSources;
   }
+
   async getConfidenceScore(question, answer) {
     try {
       const model = new ChatVertexAI({
@@ -885,7 +698,7 @@ class PineconeService {
         model: "gemini-1.5-pro",
         safetySettings: safetySettings,
       });
-  
+
       const structuredSchema = z.object({
         confidenceScore: z
           .number()
@@ -893,9 +706,9 @@ class PineconeService {
           .max(1)
           .describe("A confidence score between 0 and 1."),
       });
-  
+
       const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
-  
+
       const promptTemplate = `Based on the following question and answer, evaluate the correctness and completeness of the answer with respect to the question. Provide a confidence score between 0 and 1, where 1 indicates the answer fully addresses the question accurately and completely, and 0 indicates the answer does not address the question at all or is incorrect. Return the result in the following JSON format:
   
   {format_instructions}
@@ -903,21 +716,21 @@ class PineconeService {
   Question: {question}
   
   Answer: {answer}`;
-  
+
       const chain = RunnableSequence.from([
         ChatPromptTemplate.fromTemplate(promptTemplate),
         model,
         parser,
       ]);
-  
+
       const response = await chain.invoke({
         question: question,
         answer: answer,
         format_instructions: parser.getFormatInstructions(),
       });
-  
+
       const confidenceScore = response.confidenceScore;
-  
+
       if (
         typeof confidenceScore !== "number" ||
         confidenceScore < 0 ||
@@ -925,16 +738,15 @@ class PineconeService {
       ) {
         throw new Error("Invalid confidence score received from Gemini.");
       }
-  
+
       console.log("Confidence Score", confidenceScore);
-  
+
       return confidenceScore;
     } catch (error) {
       console.error("Error in getConfidenceScore:", error);
       throw error;
     }
   }
-  
 }
 
-module.exports = new PineconeService();
+module.exports = new BigQueryService();
