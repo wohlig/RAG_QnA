@@ -639,7 +639,7 @@ class PineconeService {
         answerStream
       );
       const chatId = uuidv4();
-      const arrayMid = Math.floor(sourcesArray.length / 2);
+      const arrayMid = sourcesArray.length > 1 ? Math.floor(sourcesArray.length / 2) : 1;
       BigQueryService.saveFeedbackBatch({
         id: chatId,
         question: question,
