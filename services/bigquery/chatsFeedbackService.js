@@ -7,8 +7,6 @@ const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, "keys.json"),
 });
 const { v4: uuidv4 } = require("uuid");
-const { time } = require("console");
-const { last } = require("lodash");
 
 class chatsFeedbackService {
   async saveFeedback(data) {
@@ -39,7 +37,7 @@ class chatsFeedbackService {
     }
   }
   async saveFeedbackBatch(data) {
-    console.log("🚀 ~ chatsFeedbackService ~ saveFeedbackBatch ~ data:", data);
+    // console.log("🚀 ~ chatsFeedbackService ~ saveFeedbackBatch ~ data:", data);
     try {
       // Create the row data
       const row = {
@@ -49,7 +47,8 @@ class chatsFeedbackService {
         custom_status: "under_review",
         session_id: data.session_id,
         timestamp: data.timestamp,
-        id: data.id
+        id: data.id,
+        confidence_score: data.confidence_score,
       };
 
       // Write the row data to a temporary JSON file for batch load
