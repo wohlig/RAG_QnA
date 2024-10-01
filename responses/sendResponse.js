@@ -32,6 +32,9 @@ module.exports = {
     resData.msg = msg
     resData.data = data
     resData.error = err
+    if(options.refreshButtonEnabled===false || options.refreshButtonEnabled===true) {
+      resData.refreshButtonEnabled = options.refreshButtonEnabled
+    }
     if (!response.is_sent) {
       response.is_sent = true
       if (!_.isEmpty(options.headers) && !_.isArray(options.headers) && _.isPlainObject(options.headers)) {
