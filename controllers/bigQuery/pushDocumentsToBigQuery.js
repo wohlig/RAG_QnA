@@ -39,7 +39,7 @@ const pushDocumentsToBigquery = async (req, res) => {
     const result = await BigQueryService.pushDocumentsToBigQuery(req.files)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
-    console.log('pushDocumentsToPinecone Error', err)
+    console.log('pushDocumentsToBigquery Error', err)
     return res.sendJson({
       type: err.type || __constants.RESPONSE_MESSAGES.SERVER_ERROR,
       err: err.err || err
@@ -47,5 +47,5 @@ const pushDocumentsToBigquery = async (req, res) => {
   }
 }
 
-router.post('/pushDocumentsToPinecone', upload.array('files'), validation, pushDocumentsToBigquery)
+router.post('/pushDocumentsToBigquery', upload.array('files'), validation, pushDocumentsToBigquery)
 module.exports = router
