@@ -39,6 +39,10 @@ const chatHistoryDummy = [];
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
 const { HumanMessage, AIMessage } = require("@langchain/core/messages");
 const { ConversationChain } = require("langchain/chains");
+const __config = require('../../config')
+const tableId = __config.bigQuery.projectId
+const dataSetId = __config.bigQuery.dataSetId
+
 
 const safetySettings = [
   {
@@ -71,9 +75,9 @@ const model = new ChatVertexAI({
 });
 const pdf_parse = require("pdf-parse");
 
-const BigQueryService = require("../../services/bigquery/chatsFeedbackService");
+const BigQueryService = require("./chatsFeedbackService");
 
-class PineconeService {
+class BigqueryService {
   async pushWebsiteDataToBigQuery(urls) {
     for (const url of urls) {
       try {
@@ -120,10 +124,7 @@ class PineconeService {
             embedding: embeddings[index],
           }));
 
-          await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle_copy")
-            .insert(rows);
+          await bigquery.dataset(dataSetId).table(tableId).insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
 
@@ -178,10 +179,7 @@ class PineconeService {
             embedding: embeddings[index],
           }));
           console.log("rows", rows);
-          await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_geminititle")
-            .insert(rows);
+          await bigquery.dataset(dataSetId).table(tableId).insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
       } catch (error) {
@@ -229,10 +227,7 @@ class PineconeService {
             title: file.originalname,
           }));
 
-          await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_gemini_latest")
-            .insert(rows);
+          await bigquery.dataset(dataSetId).table(tableId).insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
 
@@ -287,10 +282,7 @@ class PineconeService {
             feedback: "negative",
           }));
           console.log("rows", rows);
-          await bigquery
-            .dataset("ondc_dataset")
-            .table("ondc_quest_emb")
-            .insert(rows);
+          await bigquery.dataset(dataSetId).table(tableId).insert(rows);
           console.log("Successfully uploaded");
         }
       } catch (error) {
@@ -340,6 +332,7 @@ class PineconeService {
   }
 
   async getRelevantQuestionsBigQuery(question) {
+    console.log("getRelevantQuestionsBigQuery", question)
     const questionEmbedding = await this.callPredict(
       question.replace(/;/g, ""),
       "QUESTION_ANSWERING"
@@ -348,9 +341,9 @@ class PineconeService {
     let query = `SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
     FROM
     VECTOR_SEARCH(
-      TABLE ondc_dataset.ondc_quest_emb,
+      TABLE ${process.env.BIG_QUERY_PROJECT_ID}.${process.env.BIG_QUERY_QUESTIONS_TABLE_ID},
       'embedding',
-        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_quest_emb),
+        (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_PROJECT_ID}.${process.env.BIG_QUERY_QUESTIONS_TABLE_ID}),
       top_k => 3,
       distance_type => 'COSINE'
     )`;
@@ -394,9 +387,9 @@ class PineconeService {
                       base.source AS source
                       FROM
                       VECTOR_SEARCH(
-                        TABLE ondc_dataset.ondc_gemini_latest,
+                        TABLE ${tableId}.${dataSetId},
                         'embedding',
-                          (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest),
+                          (SELECT ${embeddingString} AS embedding FROM ${tableId}.${dataSetId}),
                         top_k => 20,
                         distance_type => 'COSINE'
                       ) `;
@@ -574,13 +567,16 @@ class PineconeService {
       console.log("Chat history Langchain", chatHistoryLangchain);
       console.log("Chat history Rephrase", chatHistoryRephrase);
       let finalQuestion = question;
+      console.log("finalQuestionawsd", finalQuestion)
       let decision
       if(chatHistory && chatHistory.length > 0) {
         decision = await this.makeDecisionFromGemini(question, chatHistoryRephrase);
+        console.log("decision", decision)
         if (decision.answer == "Yes") {
           finalQuestion = decision.newQuestion;
         }
       }
+      console.log("finalQuestion", finalQuestion)
       const { requestion, embedding, feedback } =
         await this.getRelevantQuestionsBigQuery(
           finalQuestion
@@ -827,4 +823,4 @@ class PineconeService {
   }
 }
 
-module.exports = new PineconeService();
+module.exports = new BigqueryService();

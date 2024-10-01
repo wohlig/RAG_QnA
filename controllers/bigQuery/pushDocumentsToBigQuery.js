@@ -3,7 +3,7 @@ const router = express.Router()
 const __constants = require('../../config/constants')
 const validationOfAPI = require('../../middlewares/validation')
 // const cache = require('../../../middlewares/requestCacheMiddleware')
-const PineconeService = require('../../services/pinecone/PineconeService')
+const BigQueryService = require('../../services/bigquery/BigQueryService')
 const multer = require('multer')
   const upload = multer()
 
@@ -34,15 +34,12 @@ const validationSchema = {
 const validation = (req, res, next) => {
   return validationOfAPI(req, res, next, validationSchema, 'body')
 }
-const askQna = async (req, res) => {
+const pushDocumentsToBigquery = async (req, res) => {
   try {
-    console.log('askQna req.body', req.body)
-    const result = await PineconeService.askQna(req.body.question, req.body.prompt, req.body.sessionId, req.body.chatHistory)
-    result.question = req.body.question
-    console.log('askQna result', result)
+    const result = await BigQueryService.pushDocumentsToBigQuery(req.files)
     res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: result })
   } catch (err) {
-    console.log('askQna Error', err)
+    console.log('pushDocumentsToPinecone Error', err)
     return res.sendJson({
       type: err.type || __constants.RESPONSE_MESSAGES.SERVER_ERROR,
       err: err.err || err
@@ -50,5 +47,5 @@ const askQna = async (req, res) => {
   }
 }
 
-router.post('/askQna', validation, askQna)
+router.post('/pushDocumentsToPinecone', upload.array('files'), validation, pushDocumentsToBigquery)
 module.exports = router

@@ -66,7 +66,7 @@ class chatsFeedbackService {
         stream.on("error", reject);
       });
 
-      const datasetId = process.env.BIG_QUERY_DATA_SET_ID;
+      const datasetId = process.env.BIG_QUERY_PROJECT_ID;
       const tableId = process.env.BIG_QUERY_FEEDBACK_TABLE_ID;
 
       // Load the data as a batch insert into BigQuery

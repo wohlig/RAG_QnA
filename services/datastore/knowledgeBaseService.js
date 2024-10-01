@@ -4,7 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const keys = process.env.GOOGLE_SECRETS;
-const PineconeService = require('../pinecone/PineconeService')
+const BigQueryService = require('../bigquery/BigQueryService')
 const axios = require('axios')
 
 // Write keys to a temporary JSON file
@@ -413,7 +413,7 @@ class knowledgebaseService {
     //   return
 
       // Step 4: Pass array3 to pushDocumentsToBigQuery
-      const embeddingFile = await PineconeService.pushDocumentsToBigQuery(array3);
+      const embeddingFile = await BigQueryService.pushDocumentsToBigQuery(array3);
       console.log("Embedding", embeddingFile)
 
       // Step 5: Update last_crawled date for documents in array1
