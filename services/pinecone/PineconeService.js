@@ -39,6 +39,7 @@ const chatHistoryDummy = [];
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
 const { HumanMessage, AIMessage } = require("@langchain/core/messages");
 const { ConversationChain } = require("langchain/chains");
+const BigQueryService = require("../../services/bigquery/chatsFeedbackService");
 
 const safetySettings = [
   {
@@ -70,8 +71,6 @@ const model = new ChatVertexAI({
   safetySettings: safetySettings,
 });
 const pdf_parse = require("pdf-parse");
-
-const BigQueryService = require("../../services/bigquery/chatsFeedbackService");
 
 class PineconeService {
   async pushWebsiteDataToBigQuery(urls) {
@@ -410,7 +409,7 @@ class PineconeService {
       const sources = rows.map((row) => ({
         source: row.source,
         document_link: row.document_link,
-        document_name: row.document_name
+        document_name: row.document_name,
       }));
 
       return {
@@ -587,6 +586,16 @@ class PineconeService {
           "response",
           "Sorry, I am not able to answer this question"
         );
+        BigQueryService.saveFeedbackBatch({
+          id: uuidv4(),
+          question: question,
+          response: "Sorry, I am not able to answer this question",
+          sources: [],
+          session_id: sessionId,
+          timestamp: new Date().toISOString(),
+          read_status: 0,
+          confidence_score: 0,
+        }).catch((err) => console.error("Error saving to BigQuery:", err));
         return {
           message: "Sorry, I am not able to answer this question",
           sources: [],
@@ -625,22 +634,29 @@ class PineconeService {
           this.getSources(requestion, context),
         ]);
       }
+      const confidenceScore = await this.getConfidenceScore(
+        finalQuestion,
+        answerStream
+      );
+      console.log("Confidence Score", confidenceScore);
       const chatId = uuidv4();
       const arrayMid = Math.floor(sourcesArray.length / 2);
       BigQueryService.saveFeedbackBatch({
         id: chatId,
-        question: finalQuestion,
+        question: question,
         response: answerStream,
         sources:
           (sourcesArray &&
             sourcesArray.length == 1 &&
-            sourcesArray[0] && sourcesArray[0].source === "") ||
+            sourcesArray[0] &&
+            sourcesArray[0].source === "") ||
           sourcesArray.length === 0
             ? ["No Response"]
             : sourcesArray.map((source) => source.source).slice(0, arrayMid),
         session_id: sessionId,
         timestamp: new Date().toISOString(),
         read_status: 0,
+        confidence_socre: confidenceScore,
       }).catch((err) => console.error("Error saving to BigQuery:", err));
       return {
         answer: answerStream,
@@ -836,28 +852,90 @@ class PineconeService {
         // Check if the source is a substring of the source in the context
         return s.source.includes(source);
       });
-  
-      if (source.startsWith('http')) {
+
+      if (source.startsWith("http")) {
         // It's a website link, include it with type 'website'
         validSources.push({
           source: source,
-          type: 'website',
+          type: "website",
         });
       } else if (sourceObj && sourceObj.document_link) {
         // It's a document, include source, document_link, and type 'document'
         validSources.push({
           source: sourceObj.source,
           document_link: sourceObj.document_link,
-          type: 'document',
+          type: "document",
         });
       } else {
         // Source not found, skip it
-        console.warn(`Source "${source}" not found in document mappings. Skipping.`);
+        console.warn(
+          `Source "${source}" not found in document mappings. Skipping.`
+        );
       }
     }
-  
+
     return validSources;
   }
+  async getConfidenceScore(question, answer) {
+    try {
+      const model = new ChatVertexAI({
+        authOptions: {
+          credentials: JSON.parse(process.env.GOOGLE_VERTEX_SECRETS),
+        },
+        temperature: 0,
+        model: "gemini-1.5-pro",
+        safetySettings: safetySettings,
+      });
+  
+      const structuredSchema = z.object({
+        confidenceScore: z
+          .number()
+          .min(0)
+          .max(1)
+          .describe("A confidence score between 0 and 1."),
+      });
+  
+      const parser = StructuredOutputParser.fromZodSchema(structuredSchema);
+  
+      const promptTemplate = `Based on the following question and answer, evaluate the correctness and completeness of the answer with respect to the question. Provide a confidence score between 0 and 1, where 1 indicates the answer fully addresses the question accurately and completely, and 0 indicates the answer does not address the question at all or is incorrect. Return the result in the following JSON format:
+  
+  {format_instructions}
+  
+  Question: {question}
+  
+  Answer: {answer}`;
+  
+      const chain = RunnableSequence.from([
+        ChatPromptTemplate.fromTemplate(promptTemplate),
+        model,
+        parser,
+      ]);
+  
+      const response = await chain.invoke({
+        question: question,
+        answer: answer,
+        format_instructions: parser.getFormatInstructions(),
+      });
+  
+      const confidenceScore = response.confidenceScore;
+  
+      if (
+        typeof confidenceScore !== "number" ||
+        confidenceScore < 0 ||
+        confidenceScore > 1
+      ) {
+        throw new Error("Invalid confidence score received from Gemini.");
+      }
+  
+      console.log("Confidence Score", confidenceScore);
+  
+      return confidenceScore;
+    } catch (error) {
+      console.error("Error in getConfidenceScore:", error);
+      throw error;
+    }
+  }
+  
 }
 
 module.exports = new PineconeService();
