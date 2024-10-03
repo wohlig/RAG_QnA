@@ -36,7 +36,7 @@ const validation = (req, res, next) => {
 
 router.post('/detail-stats', validation, async (req, res) => {
     try {
-        const stats = await ChatsFeedbackService.getDetailStats(req.body.source);
+        const stats = await ChatsFeedbackService.getDetailStats(req.body.source, req.body.start_time, req.body.end_time);
         res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: stats });
     } catch (err) {
         console.log('Error fetching detail stats', err);
