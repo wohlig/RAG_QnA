@@ -594,7 +594,7 @@ class PineconeService {
           session_id: sessionId,
           timestamp: new Date().toISOString(),
           read_status: 0,
-          confidence_score: 0,
+          confidence_socre: 0,
         }).catch((err) => console.error("Error saving to BigQuery:", err));
         return {
           message: "Sorry, I am not able to answer this question",
