@@ -32,9 +32,9 @@ const validation = (req, res, next) => {
     return validationOfAPI(req, res, next, validationSchema, 'body');
 }
 
-router.get('/sources', validation, async (req, res) => {
+router.post('/sources', validation, async (req, res) => {
     try {
-        const sources = await ChatsFeedbackService.getUniqueSources();
+        const sources = await ChatsFeedbackService.getUniqueSources(req.body.start_time, req.body.end_time);
         res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: sources });
     } catch (err) {
         console.log('Error fetching unique sources', err);
