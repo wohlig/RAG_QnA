@@ -37,7 +37,7 @@ const validation = (req, res, next) => {
 router.post('/history', validation, async (req, res) => {
     try {
         const { source } = req.body;
-        const chatHistory = await ChatsFeedbackService.getChatHistoryBySource(source);
+        const chatHistory = await ChatsFeedbackService.getChatHistoryBySource(source, req.body.start_time, req.body.end_time);
         res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: chatHistory });
     } catch (err) {
         console.log('Error fetching chat history:', err);

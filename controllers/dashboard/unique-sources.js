@@ -1,8 +1,8 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const __constants = require('../../config/constants');
-const validationOfAPI = require('../../middlewares/validation');
-const ChatsFeedbackService = require('../../services/bigquery/chatsFeedbackService');
+const __constants = require("../../config/constants");
+const validationOfAPI = require("../../middlewares/validation");
+const ChatsFeedbackService = require("../../services/bigquery/chatsFeedbackService");
 
 /**
  * @namespace -Sources-Module-
@@ -23,26 +23,32 @@ const ChatsFeedbackService = require('../../services/bigquery/chatsFeedbackServi
  */
 
 const validationSchema = {
-    type: 'object',
-    required: true,
-    properties: {}
-}
+  type: "object",
+  required: true,
+  properties: {},
+};
 
 const validation = (req, res, next) => {
-    return validationOfAPI(req, res, next, validationSchema, 'body');
-}
+  return validationOfAPI(req, res, next, validationSchema, "body");
+};
 
-router.get('/sources', validation, async (req, res) => {
-    try {
-        const sources = await ChatsFeedbackService.getUniqueSources();
-        res.sendJson({ type: __constants.RESPONSE_MESSAGES.SUCCESS, data: sources });
-    } catch (err) {
-        console.log('Error fetching unique sources', err);
-        res.sendJson({
-            type: err.type || __constants.RESPONSE_MESSAGES.SERVER_ERROR,
-            err: err.err || err
-        });
-    }
+router.post("/sources", validation, async (req, res) => {
+  try {
+    const sources = await ChatsFeedbackService.getUniqueSources(
+      req.body.start_time,
+      req.body.end_time
+    );
+    res.sendJson({
+      type: __constants.RESPONSE_MESSAGES.SUCCESS,
+      data: sources,
+    });
+  } catch (err) {
+    console.log("Error fetching unique sources", err);
+    res.sendJson({
+      type: err.type || __constants.RESPONSE_MESSAGES.SERVER_ERROR,
+      err: err.err || err,
+    });
+  }
 });
 
 module.exports = router;
