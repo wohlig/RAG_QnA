@@ -176,7 +176,7 @@ class chatsFeedbackService {
       SELECT 
         source,
         COUNT(*) AS total_questions,
-        AVG(confidence_score) AS avg_confidence,
+        AVG(confidence_socre) AS avg_confidence,
         MAX(timestamp) AS last_update,
         SUM(CASE WHEN feedback = 1 THEN 1 ELSE 0 END) AS positive_feedback_count,
         (SUM(CASE WHEN feedback = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100 AS relevance_percent
