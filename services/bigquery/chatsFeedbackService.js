@@ -175,6 +175,7 @@ class chatsFeedbackService {
     const query = `
       SELECT 
         source,
+        dt.document_link,
         COUNT(*) AS total_questions,
         AVG(confidence_socre) AS avg_confidence,
         MAX(timestamp) AS last_update,
@@ -184,9 +185,11 @@ class chatsFeedbackService {
         SELECT *
         FROM \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`
         WHERE timestamp BETWEEN @start_time AND @end_time
-      )
-      CROSS JOIN UNNEST(sources) AS source
-      GROUP BY source
+      ) AS ft
+      CROSS JOIN UNNEST(ft.sources) AS source
+      LEFT JOIN \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_DOCUMENTS_TABLE_ID}\` AS dt
+      ON dt.document_name LIKE CONCAT('%', source, '%')
+      GROUP BY source, dt.document_link
       ORDER BY last_update DESC
     `;
   
@@ -199,12 +202,13 @@ class chatsFeedbackService {
       const [rows] = await bigquery.query(options);
       return rows.map((row) => ({
         source: row.source,
+        documentLink: row.document_link,
         totalQuestions: row.total_questions,
         averageConfidence: row.avg_confidence
-          ? row.avg_confidence.toFixed(2)
+          ? Number(row.avg_confidence).toFixed(2)
           : null,
         relevancePercent: row.relevance_percent
-          ? row.relevance_percent.toFixed(2)
+          ? Number(row.relevance_percent).toFixed(2)
           : null,
         lastUpdate: row.last_update,
       }));
@@ -213,6 +217,7 @@ class chatsFeedbackService {
       throw new Error(err);
     }
   }
+  
   
   async updateReadStatus(id) {
     console.log(`Updating Read Status of chatId ${id}`)
