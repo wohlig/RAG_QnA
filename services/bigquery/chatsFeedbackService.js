@@ -172,8 +172,6 @@ class chatsFeedbackService {
     });
   }
   async getUniqueSources(start_time, end_time) {
-    console.log("🚀 ~ chatsFeedbackService ~ getUniqueSources ~ end_time:", end_time)
-    console.log("🚀 ~ chatsFeedbackService ~ getUniqueSources ~ start_time:", start_time)
     const query = `
       SELECT 
         source,
