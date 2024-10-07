@@ -130,30 +130,29 @@ class chatsFeedbackService {
       noFeedbackPercent: ((row.no_feedback / row.total_questions) * 100).toFixed(2),
     }))[0];
   }
-  async getDetailStats(source, start_time, end_time) {
+  async getDetailStats(source) {
     console.log("🚀 ~ chatsFeedbackService ~ getDetailStats ~ source:", source);
-  
+
     let query = `
-      SELECT 
-        source,
-        COUNT(*) AS count,
-        COUNT(CASE WHEN custom_status = 'under_review' THEN 1 END) AS yet_to_be_reviewed,
-        COUNT(CASE WHEN custom_status = 'relevant' THEN 1 END) AS relevant,
-        COUNT(CASE WHEN custom_status = 'irrelevant' THEN 1 END) AS irrelevant,
-        COUNT(CASE WHEN custom_status = 'needs_improvement' THEN 1 END) AS needs_improvement,
-        COUNT(CASE WHEN custom_status = 'retrained' THEN 1 END) AS retrained
-      FROM \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`
-      CROSS JOIN UNNEST(sources) AS source
-      WHERE timestamp BETWEEN '${start_time}' AND '${end_time}'
+        SELECT 
+            source,  -- Unnesting the array so each source is treated as a separate row
+            COUNT(*) AS count,
+            COUNT(CASE WHEN custom_status = 'under_review' THEN 1 END) AS yet_to_be_reviewed,
+            COUNT(CASE WHEN custom_status = 'relevant' THEN 1 END) AS relevant,
+            COUNT(CASE WHEN custom_status = 'irrelevant' THEN 1 END) AS irrelevant,
+            COUNT(CASE WHEN custom_status = 'needs_improvement' THEN 1 END) AS needs_improvement,
+            COUNT(CASE WHEN custom_status = 'retrained' THEN 1 END) AS retrained
+        FROM \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`,
+        UNNEST(sources) AS source  -- Unnest the sources array into individual rows
     `;
-  
+
     // If the source filter is provided, include it in the WHERE clause
     if (source) {
-      query += ` AND source = '${source}'`;
+      query += ` WHERE source = '${source}'`; // Compare against each un-nested source
     }
-  
+
     query += ` GROUP BY source ORDER BY source`;
-  
+
     const [rows] = await bigquery.query({ query });
     return rows;
   }
@@ -171,41 +170,39 @@ class chatsFeedbackService {
       params: { chatIds, status },
     });
   }
-  async getUniqueSources(start_time, end_time) {
+  async getUniqueSources() {
     const query = `
       SELECT 
-        source,
+        source,  -- Each source will now be in its own row
+        dt.document_link,
         COUNT(*) AS total_questions,
         AVG(confidence_socre) AS avg_confidence,
         MAX(timestamp) AS last_update,
         SUM(CASE WHEN feedback = 1 THEN 1 ELSE 0 END) AS positive_feedback_count,
         (SUM(CASE WHEN feedback = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100 AS relevance_percent
-      FROM (
-        SELECT *
-        FROM \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`
-        WHERE timestamp BETWEEN @start_time AND @end_time
-      )
-      CROSS JOIN UNNEST(sources) AS source
-      GROUP BY source
-      ORDER BY last_update DESC
+      FROM 
+        \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`,
+        UNNEST(sources) AS source  -- Unnest each source into its own row
+      LEFT JOIN 
+        \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_DOCUMENTS_TABLE_ID}\` AS dt
+      ON 
+        dt.document_name LIKE CONCAT('%', source, '%')
+      GROUP BY 
+        source, dt.document_link
+      ORDER BY 
+        last_update DESC
     `;
   
-    const options = {
-      query: query,
-      params: { start_time, end_time },
-    };
-  
     try {
-      const [rows] = await bigquery.query(options);
+      const [rows] = await bigquery.query({ query });
       return rows.map((row) => ({
-        source: row.source,
+        source: row.source, // Now it's a single string, not an array
+        documentLink: row.document_link,
         totalQuestions: row.total_questions,
         averageConfidence: row.avg_confidence
-          ? row.avg_confidence.toFixed(2)
-          : null,
-        relevancePercent: row.relevance_percent
-          ? row.relevance_percent.toFixed(2)
-          : null,
+          ? Number(row.avg_confidence).toFixed(2)
+          : null, // Handle null confidence scores
+        relevancePercent: Number(row.relevance_percent).toFixed(2), // Relevance percentage rounded to 2 decimals
         lastUpdate: row.last_update,
       }));
     } catch (err) {
@@ -213,6 +210,7 @@ class chatsFeedbackService {
       throw new Error(err);
     }
   }
+  
   
   async updateReadStatus(id) {
     console.log(`Updating Read Status of chatId ${id}`)
@@ -232,31 +230,30 @@ class chatsFeedbackService {
       throw new Error(err);
     }
   }
-  async getChatHistoryBySource(source, start_time, end_time) {
+  async getChatHistoryBySource(source) {
     console.log("Fetching chat history for source:", source);
-  
+
     const query = `
-      SELECT 
-        id,
-        question,
-        response,
-        sources,
-        feedback,
-        custom_status,
-        read_status,
-        timestamp
-      FROM \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`
-      CROSS JOIN UNNEST(sources) AS source
-      WHERE timestamp BETWEEN '${start_time}' AND '${end_time}'
-        AND source = @source
-      ORDER BY timestamp DESC
+        SELECT 
+            id,                   -- Chat ID
+            question,             -- The question asked in the chat
+            response,             -- The response provided by the chatbot
+            sources,              -- The sources associated with the chat
+            feedback,             -- Feedback given by the user
+            custom_status,        -- The custom status of the chat
+            read_status,          -- The read status of the chat
+            timestamp             -- Timestamp for the last update
+        FROM \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`,
+        UNNEST(sources) AS source  -- Unnest the sources array into individual rows
+        WHERE source = @source
+        ORDER BY timestamp DESC  -- Sort by the latest updated chats
     `;
-  
+
     const options = {
       query: query,
       params: { source },
     };
-  
+
     try {
       const [rows] = await bigquery.query(options);
       return rows;
@@ -265,6 +262,5 @@ class chatsFeedbackService {
       throw new Error(err);
     }
   }
-  
 }
 module.exports = new chatsFeedbackService();
