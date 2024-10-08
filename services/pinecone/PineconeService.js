@@ -656,7 +656,7 @@ class PineconeService {
       );
       console.timeEnd("Get confidence score");
       const chatId = uuidv4();
-      const arrayMid = sourcesArray.length > 1 ? Math.floor(sourcesArray.length / 2) : 1;
+      // const arrayMid = sourcesArray.length > 1 ? Math.floor(sourcesArray.length / 2) : 1;
       chatsFeedbackService.saveFeedbackBatch({
         id: chatId,
         question: question,
@@ -668,7 +668,7 @@ class PineconeService {
             sourcesArray[0].source === "") ||
           sourcesArray.length === 0
             ? ["No Response"]
-            : sourcesArray.map((source) => source.source).slice(0, arrayMid),
+            : sourcesArray.map((source) => source.source),
         session_id: sessionId,
         timestamp: new Date().toISOString(),
         read_status: 0,
