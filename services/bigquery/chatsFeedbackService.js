@@ -7,6 +7,7 @@ const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, "keys.json"),
 });
 const { v4: uuidv4 } = require("uuid");
+const KnowledgeBaseService = require("../../services/datastore/knowledgeBaseService.js")
 
 class chatsFeedbackService {
   async saveFeedback(data) {

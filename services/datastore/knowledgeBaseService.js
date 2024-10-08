@@ -225,6 +225,39 @@ class knowledgebaseService {
     }
   }
 
+  async getLinksOfSource(sourcesArray) {
+    try {
+      const datasetId = process.env.BIG_QUERY_DATA_SET_ID;
+      const tableId = process.env.BIG_QUERY_DOCUMENTS_TABLE_ID;
+    const query = `
+      SELECT *
+      FROM \`${datasetId}.${tableId}\`
+      WHERE status = @status
+      AND document_name IN UNNEST(@sourcesArray)
+    `;
+
+    const options = {
+      query: query,
+      params: {
+        status: 'Active',
+        sourcesArray: sourcesArray
+      },
+      location: 'asia-south1', // Set to your dataset's location
+    };
+
+    const [job] = await bigquery.createQueryJob(options);
+    console.log(`Query job started: ${job.id}`);
+
+    const [rows] = await job.getQueryResults();
+
+    console.log(`Retrieved ${rows.length} documents with status 'Active'.`);
+
+    return rows;
+  } catch (err) {
+    console.error('Error in getLinksOfSource function:', err);
+    throw err;
+  }
+  }
 
   async deleteDocument(documentNames) {
     try {
