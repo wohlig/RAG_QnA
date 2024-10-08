@@ -126,13 +126,19 @@ class chatsFeedbackService {
       irrelevant: row.irrelevant,
       noFeedback: row.no_feedback,
       relevancePercent: ((row.relevant / row.total_questions) * 100).toFixed(2),
-      irrelevancePercent: ((row.irrelevant / row.total_questions) * 100).toFixed(2),
-      noFeedbackPercent: ((row.no_feedback / row.total_questions) * 100).toFixed(2),
+      irrelevancePercent: (
+        (row.irrelevant / row.total_questions) *
+        100
+      ).toFixed(2),
+      noFeedbackPercent: (
+        (row.no_feedback / row.total_questions) *
+        100
+      ).toFixed(2),
     }))[0];
   }
   async getDetailStats(source, start_time, end_time) {
     console.log("🚀 ~ chatsFeedbackService ~ getDetailStats ~ source:", source);
-  
+
     let query = `
       SELECT 
         source,
@@ -146,14 +152,14 @@ class chatsFeedbackService {
       CROSS JOIN UNNEST(sources) AS source
       WHERE timestamp BETWEEN '${start_time}' AND '${end_time}'
     `;
-  
+
     // If the source filter is provided, include it in the WHERE clause
     if (source) {
       query += ` AND source = '${source}'`;
     }
-  
+
     query += ` GROUP BY source ORDER BY source`;
-  
+
     const [rows] = await bigquery.query({ query });
     return rows;
   }
@@ -192,12 +198,12 @@ class chatsFeedbackService {
       GROUP BY source, dt.document_link
       ORDER BY last_update DESC
     `;
-  
+
     const options = {
       query: query,
       params: { start_time, end_time },
     };
-  
+
     try {
       const [rows] = await bigquery.query(options);
       return rows.map((row) => ({
@@ -217,13 +223,12 @@ class chatsFeedbackService {
       throw new Error(err);
     }
   }
-  
-  
+
   async updateReadStatus(id) {
-    console.log(`Updating Read Status of chatId ${id}`)
+    console.log(`Updating Read Status of chatId ${id}`);
     const query = `UPDATE \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`
                    SET read_status = 1
-                   WHERE id = @id`
+                   WHERE id = @id`;
     const options = {
       query: query,
       params: { id },
@@ -239,7 +244,7 @@ class chatsFeedbackService {
   }
   async getChatHistoryBySource(source, start_time, end_time) {
     console.log("Fetching chat history for source:", source);
-  
+
     const query = `
       SELECT 
         id,
@@ -256,12 +261,12 @@ class chatsFeedbackService {
         AND source = @source
       ORDER BY timestamp DESC
     `;
-  
+
     const options = {
       query: query,
       params: { source },
     };
-  
+
     try {
       const [rows] = await bigquery.query(options);
 
@@ -307,6 +312,5 @@ class chatsFeedbackService {
       throw new Error(err);
     }
   }
-  
 }
 module.exports = new chatsFeedbackService();

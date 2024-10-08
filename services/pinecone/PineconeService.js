@@ -339,26 +339,31 @@ class PineconeService {
   }
 
   async getRelevantQuestionsBigQuery(question) {
+    console.time("Call Predict")
     const questionEmbedding = await this.callPredict(
       question.replace(/;/g, ""),
       "QUESTION_ANSWERING"
     );
+    console.timeEnd("Call Predict")
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
-    let query = `SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
+    let query = `
+    SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
     FROM
     VECTOR_SEARCH(
       TABLE ondc_dataset.ondc_quest_emb,
       'embedding',
-        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_quest_emb),
+      (SELECT ${embeddingString} AS embedding),
       top_k => 3,
       distance_type => 'COSINE'
-    )`;
+    )
+    `;
     try {
       let newQuestion = question;
       let newEmbedding = questionEmbedding;
       let feedback = "positive";
+      console.time("Rows")
       const [rows] = await bigquery.query({ query });
-
+      console.timeEnd("Rows")
       for (const row of rows) {
         if (row.feedback === "positive" && row.distance < 0.1) {
           console.log("Found similar question", row.question);
@@ -382,7 +387,7 @@ class PineconeService {
       throw error;
     }
   }
-
+  
   async getRelevantContextsBigQuery(embedding) {
     const questionEmbedding = embedding;
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
@@ -699,10 +704,13 @@ class PineconeService {
           .map((e) => helpers.toValue({ content: e, taskType: task }));
       }
       const request = { endpoint, instances, parameters };
+      console.time("Initialize")
       const client = new PredictionServiceClient(clientOptions);
+      console.timeEnd("Initialize")
+      console.time("client")
       const [response] = await client.predict(request);
+      console.timeEnd("client")
       const predictions = response.predictions;
-
       for (const prediction of predictions) {
         const embeddings = prediction.structValue.fields.embeddings;
         const values = embeddings.structValue.fields.values.listValue.values;
