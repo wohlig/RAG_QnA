@@ -7,6 +7,7 @@ const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, "keys.json"),
 });
 const { v4: uuidv4 } = require("uuid");
+const KnowledgeBaseService = require("../../services/datastore/knowledgeBaseService");
 
 class chatsFeedbackService {
   async saveFeedback(data) {
@@ -126,13 +127,19 @@ class chatsFeedbackService {
       irrelevant: row.irrelevant,
       noFeedback: row.no_feedback,
       relevancePercent: ((row.relevant / row.total_questions) * 100).toFixed(2),
-      irrelevancePercent: ((row.irrelevant / row.total_questions) * 100).toFixed(2),
-      noFeedbackPercent: ((row.no_feedback / row.total_questions) * 100).toFixed(2),
+      irrelevancePercent: (
+        (row.irrelevant / row.total_questions) *
+        100
+      ).toFixed(2),
+      noFeedbackPercent: (
+        (row.no_feedback / row.total_questions) *
+        100
+      ).toFixed(2),
     }))[0];
   }
   async getDetailStats(source, start_time, end_time) {
     console.log("🚀 ~ chatsFeedbackService ~ getDetailStats ~ source:", source);
-  
+
     let query = `
       SELECT 
         source,
@@ -146,14 +153,14 @@ class chatsFeedbackService {
       CROSS JOIN UNNEST(sources) AS source
       WHERE timestamp BETWEEN '${start_time}' AND '${end_time}'
     `;
-  
+
     // If the source filter is provided, include it in the WHERE clause
     if (source) {
       query += ` AND source = '${source}'`;
     }
-  
+
     query += ` GROUP BY source ORDER BY source`;
-  
+
     const [rows] = await bigquery.query({ query });
     return rows;
   }
@@ -192,12 +199,12 @@ class chatsFeedbackService {
       GROUP BY source, dt.document_link
       ORDER BY last_update DESC
     `;
-  
+
     const options = {
       query: query,
       params: { start_time, end_time },
     };
-  
+
     try {
       const [rows] = await bigquery.query(options);
       return rows.map((row) => ({
@@ -217,13 +224,12 @@ class chatsFeedbackService {
       throw new Error(err);
     }
   }
-  
-  
+
   async updateReadStatus(id) {
-    console.log(`Updating Read Status of chatId ${id}`)
+    console.log(`Updating Read Status of chatId ${id}`);
     const query = `UPDATE \`${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_FEEDBACK_TABLE_ID}\`
                    SET read_status = 1
-                   WHERE id = @id`
+                   WHERE id = @id`;
     const options = {
       query: query,
       params: { id },
@@ -239,7 +245,7 @@ class chatsFeedbackService {
   }
   async getChatHistoryBySource(source, start_time, end_time) {
     console.log("Fetching chat history for source:", source);
-  
+
     const query = `
       SELECT 
         id,
@@ -256,20 +262,55 @@ class chatsFeedbackService {
         AND source = @source
       ORDER BY timestamp DESC
     `;
-  
+
     const options = {
       query: query,
       params: { source },
     };
-  
+
     try {
       const [rows] = await bigquery.query(options);
+
+      // Step 1: Collect all unique sources from all rows
+      let allSources = [];
+      rows.forEach((row) => {
+        allSources = allSources.concat(row.sources);
+      });
+      allSources = [...new Set(allSources)]; // Remove duplicates
+
+      // Step 2: Get links for all sources in a single call
+      const linksOfSource = await KnowledgeBaseService.getLinksOfSource(
+        allSources
+      );
+
+      // Build a map from document_name to document_link for quick lookup
+      const sourceLinkMap = new Map();
+      linksOfSource.forEach((item) => {
+        sourceLinkMap.set(item.document_name, item.document_link);
+      });
+
+      // Step 3: Update each row's sources using the map
+      rows.forEach((row) => {
+        const updatedSources = row.sources
+          .map((sourceName) => {
+            const document_link = sourceLinkMap.get(sourceName);
+            if (document_link) {
+              return {
+                document_name: sourceName,
+                document_link: document_link,
+              };
+            }
+            return null;
+          })
+          .filter((item) => item !== null);
+        row.sources = updatedSources;
+      });
+
       return rows;
     } catch (err) {
       console.error("Error in getChatHistoryBySource function:", err);
       throw new Error(err);
     }
   }
-  
 }
 module.exports = new chatsFeedbackService();
