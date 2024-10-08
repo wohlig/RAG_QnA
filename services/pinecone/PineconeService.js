@@ -39,7 +39,7 @@ const chatHistoryDummy = [];
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
 const { HumanMessage, AIMessage } = require("@langchain/core/messages");
 const { ConversationChain } = require("langchain/chains");
-const BigQueryService = require("../../services/bigquery/chatsFeedbackService");
+const chatsFeedbackService = require("../../services/bigquery/chatsFeedbackService");
 
 const safetySettings = [
   {
@@ -422,7 +422,7 @@ class PineconeService {
     }
   }
 
-  async getPrompt(question, promptBody) {
+  getPrompt(question, promptBody) {
     let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself`;
     if (promptBody) {
       console.log("Prompt Body:", promptBody);
@@ -571,22 +571,26 @@ class PineconeService {
       let finalQuestion = question;
       let decision;
       if (chatHistory && chatHistory.length > 0) {
+        console.time("Chat history decision");
         decision = await this.makeDecisionFromGemini(
           question,
           chatHistoryRephrase
         );
+        console.timeEnd("Chat history decision");
         if (decision.answer == "Yes") {
           finalQuestion = decision.newQuestion;
         }
       }
+      console.time("Get relevant questions");
       const { requestion, embedding, feedback } =
         await this.getRelevantQuestionsBigQuery(finalQuestion);
+      console.timeEnd("Get relevant questions");
       if (feedback === "negative") {
         io.to(sessionId).emit(
           "response",
           "Sorry, I am not able to answer this question"
         );
-        BigQueryService.saveFeedbackBatch({
+        chatsFeedbackService.saveFeedbackBatch({
           id: uuidv4(),
           question: question,
           response: "Sorry, I am not able to answer this question",
@@ -601,11 +605,14 @@ class PineconeService {
           sources: [],
         };
       }
+      console.time("Get relevant contexts");
       const context = await this.getRelevantContextsBigQuery(embedding);
-      let finalPrompt = await this.getPrompt(requestion, prompt);
+      console.timeEnd("Get relevant contexts");
+      let finalPrompt = this.getPrompt(requestion, prompt);
       let answerStream;
       let sourcesArray;
       if (sessionId) {
+        console.time("Stream answer");
         [answerStream, sourcesArray] = await Promise.all([
           chatHistoryLangchain && chatHistoryLangchain.length > 0
             ? this.streamAnswer(
@@ -623,7 +630,9 @@ class PineconeService {
               ),
           this.getSources(requestion, context),
         ]);
+        console.timeEnd("Stream answer");
       } else {
+        console.time("Direct answer");
         [answerStream, sourcesArray] = await Promise.all([
           this.directAnswer(
             finalPrompt,
@@ -633,14 +642,17 @@ class PineconeService {
           ),
           this.getSources(requestion, context),
         ]);
+        console.timeEnd("Direct answer");
       }
+      console.time("Get confidence score");
       const confidenceScore = await this.getConfidenceScore(
         finalQuestion,
         answerStream
       );
+      console.timeEnd("Get confidence score");
       const chatId = uuidv4();
       const arrayMid = sourcesArray.length > 1 ? Math.floor(sourcesArray.length / 2) : 1;
-      BigQueryService.saveFeedbackBatch({
+      chatsFeedbackService.saveFeedbackBatch({
         id: chatId,
         question: question,
         response: answerStream,
