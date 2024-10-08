@@ -7,6 +7,7 @@ const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, "keys.json"),
 });
 const { v4: uuidv4 } = require("uuid");
+const KnowledgeBaseService = require("../../services/datastore/knowledgeBaseService");
 
 class chatsFeedbackService {
   async saveFeedback(data) {
@@ -264,6 +265,42 @@ class chatsFeedbackService {
   
     try {
       const [rows] = await bigquery.query(options);
+
+      // Step 1: Collect all unique sources from all rows
+      let allSources = [];
+      rows.forEach((row) => {
+        allSources = allSources.concat(row.sources);
+      });
+      allSources = [...new Set(allSources)]; // Remove duplicates
+
+      // Step 2: Get links for all sources in a single call
+      const linksOfSource = await KnowledgeBaseService.getLinksOfSource(
+        allSources
+      );
+
+      // Build a map from document_name to document_link for quick lookup
+      const sourceLinkMap = new Map();
+      linksOfSource.forEach((item) => {
+        sourceLinkMap.set(item.document_name, item.document_link);
+      });
+
+      // Step 3: Update each row's sources using the map
+      rows.forEach((row) => {
+        const updatedSources = row.sources
+          .map((sourceName) => {
+            const document_link = sourceLinkMap.get(sourceName);
+            if (document_link) {
+              return {
+                document_name: sourceName,
+                document_link: document_link,
+              };
+            }
+            return null;
+          })
+          .filter((item) => item !== null);
+        row.sources = updatedSources;
+      });
+
       return rows;
     } catch (err) {
       console.error("Error in getChatHistoryBySource function:", err);
