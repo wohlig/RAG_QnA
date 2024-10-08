@@ -279,7 +279,6 @@ class chatsFeedbackService {
 
       // Step 2: Get links for all sources in a single call
       const KnowledgeBaseService = require("../../services/datastore/knowledgeBaseService");
-
       const linksOfSource = await KnowledgeBaseService.getLinksOfSource(
         allSources
       );
