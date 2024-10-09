@@ -390,7 +390,7 @@ class PineconeService {
     const questionEmbedding = embedding;
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
 
-    let query = `SELECT DISTINCT base.context AS context,
+    let query = `SELECT base.context AS context,
     base.source AS source,
     docs.document_link AS document_link,
     docs.document_name AS document_name
@@ -398,7 +398,7 @@ class PineconeService {
     VECTOR_SEARCH(
       TABLE ondc_dataset.ondc_gemini_latest,
       'embedding',
-        (SELECT ${embeddingString} AS embedding FROM ondc_dataset.ondc_gemini_latest),
+        (SELECT ${embeddingString} AS embedding),
       top_k => 20,
       distance_type => 'COSINE'
     )
