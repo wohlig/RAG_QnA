@@ -120,7 +120,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_gemini_latest")
+            .table("ondc_gemini_dev")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -178,7 +178,7 @@ class PineconeService {
           console.log("rows", rows);
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_gemini_latest")
+            .table("ondc_gemini_dev")
             .insert(rows);
           console.log("Successfully uploaded batch", Math.floor(i / 100) + 1);
         }
@@ -229,7 +229,7 @@ class PineconeService {
 
           await bigquery
             .dataset("ondc_dataset")
-            .table("ondc_gemini_latest")
+            .table("ondc_gemini_dev")
             .insert(rows);
           console.log("Successfully uploaded", i / 100);
         }
@@ -396,7 +396,7 @@ class PineconeService {
     docs.document_name AS document_name
     FROM
     VECTOR_SEARCH(
-      TABLE ondc_dataset.ondc_gemini_latest,
+      TABLE ondc_dataset.ondc_gemini_dev,
       'embedding',
         (SELECT ${embeddingString} AS embedding),
       top_k => 20,
