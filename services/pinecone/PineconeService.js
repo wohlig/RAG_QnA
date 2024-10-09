@@ -28,15 +28,13 @@ const bigquery = new BigQuery({
 const aiplatform = require("@google-cloud/aiplatform");
 const { PredictionServiceClient } = aiplatform.v1;
 const { helpers } = aiplatform;
-const clientOptions = { apiEndpoint: "us-central1-aiplatform.googleapis.com" };
+const clientOptions = { apiEndpoint: "asia-south1-aiplatform.googleapis.com" };
     const client = new PredictionServiceClient(clientOptions);
-const location = "us-central1";
+const location = "asia-south1";
 const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publishers/google/models/text-embedding-004`;
 const parameters = helpers.toValue({
   outputDimensionality: 768,
 });
-const chatHistoryONDC = [];
-const chatHistoryDummy = [];
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
 const { HumanMessage, AIMessage } = require("@langchain/core/messages");
 const { ConversationChain } = require("langchain/chains");
