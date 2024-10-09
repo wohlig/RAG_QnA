@@ -29,6 +29,7 @@ const aiplatform = require("@google-cloud/aiplatform");
 const { PredictionServiceClient } = aiplatform.v1;
 const { helpers } = aiplatform;
 const clientOptions = { apiEndpoint: "us-central1-aiplatform.googleapis.com" };
+    const client = new PredictionServiceClient(clientOptions);
 const location = "us-central1";
 const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publishers/google/models/text-embedding-004`;
 const parameters = helpers.toValue({
@@ -320,7 +321,6 @@ class PineconeService {
           .map((e) => helpers.toValue({ content: e, taskType: task }));
       }
       const request = { endpoint, instances, parameters };
-      const client = new PredictionServiceClient(clientOptions);
       const [response] = await client.predict(request);
       const predictions = response.predictions;
 
@@ -339,12 +339,12 @@ class PineconeService {
   }
 
   async getRelevantQuestionsBigQuery(question) {
-    console.time("Call Predict")
+    console.time("Entire embedding generation function")
     const questionEmbedding = await this.callPredict(
       question.replace(/;/g, ""),
       "QUESTION_ANSWERING"
     );
-    console.timeEnd("Call Predict")
+    console.timeEnd("Entire embedding generation function")
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
     let query = `
     SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
@@ -361,9 +361,9 @@ class PineconeService {
       let newQuestion = question;
       let newEmbedding = questionEmbedding;
       let feedback = "positive";
-      console.time("Rows")
+      console.time("getRelevantQuestionsBigQuery")
       const [rows] = await bigquery.query({ query });
-      console.timeEnd("Rows")
+      console.timeEnd("getRelevantQuestionsBigQuery")
       for (const row of rows) {
         if (row.feedback === "positive" && row.distance < 0.1) {
           console.log("Found similar question", row.question);
@@ -409,7 +409,9 @@ class PineconeService {
       `;
 
     try {
+      console.time("getRelevantContextsBigQuery")
       const [rows] = await bigquery.query({ query });
+      console.timeEnd("getRelevantContextsBigQuery")
       const contexts = rows.map((row) => row.context);
       const sources = rows.map((row) => ({
         source: row.source,
@@ -586,10 +588,10 @@ class PineconeService {
           finalQuestion = decision.newQuestion;
         }
       }
-      console.time("Get relevant questions");
+      console.time("Get relevant questions entire function");
       const { requestion, embedding, feedback } =
         await this.getRelevantQuestionsBigQuery(finalQuestion);
-      console.timeEnd("Get relevant questions");
+      console.timeEnd("Get relevant questions entire function");
       if (feedback === "negative") {
         io.to(sessionId).emit(
           "response",
@@ -610,9 +612,9 @@ class PineconeService {
           sources: [],
         };
       }
-      console.time("Get relevant contexts");
+      console.time("Get relevant contexts entire function");
       const context = await this.getRelevantContextsBigQuery(embedding);
-      console.timeEnd("Get relevant contexts");
+      console.timeEnd("Get relevant contexts entire function");
       let finalPrompt = this.getPrompt(requestion, prompt);
       let answerStream;
       let sourcesArray;
@@ -704,17 +706,10 @@ class PineconeService {
           .map((e) => helpers.toValue({ content: e, taskType: task }));
       }
       const request = { endpoint, instances, parameters };
-      console.time("Initialize")
-      const client = new PredictionServiceClient(clientOptions);
-      console.timeEnd("Initialize")
-      console.time("client")
+      console.time("Embedding generation")
       const [response] = await client.predict(request);
-      console.timeEnd("client")
+      console.timeEnd("Embedding generation")
       const predictions = response.predictions;
-      for (const prediction of predictions) {
-        const embeddings = prediction.structValue.fields.embeddings;
-        const values = embeddings.structValue.fields.values.listValue.values;
-      }
       const embeddings = predictions[0].structValue.fields.embeddings;
       const values = embeddings.structValue.fields.values.listValue.values;
       console.log("Embeddings created");
