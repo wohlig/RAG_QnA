@@ -656,8 +656,12 @@ class PineconeService {
       );
       console.timeEnd("Get confidence score");
       const chatId = uuidv4();
-      // remove duplicates from sourcesArray
-      sourcesArray = new Set(sourcesArray);
+      // remove duplicates from sourcesArray based on document_link
+      sourcesArray = sourcesArray.filter(
+        (v, i, a) =>
+          a.findIndex((t) => t.document_link === v.document_link) === i
+      );
+
       chatsFeedbackService.saveFeedbackBatch({
         id: chatId,
         question: question,
