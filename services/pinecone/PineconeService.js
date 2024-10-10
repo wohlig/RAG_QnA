@@ -656,7 +656,8 @@ class PineconeService {
       );
       console.timeEnd("Get confidence score");
       const chatId = uuidv4();
-      // const arrayMid = sourcesArray.length > 1 ? Math.floor(sourcesArray.length / 2) : 1;
+      // remove duplicates from sourcesArray
+      sourcesArray = new Set(sourcesArray);
       chatsFeedbackService.saveFeedbackBatch({
         id: chatId,
         question: question,
