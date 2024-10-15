@@ -567,8 +567,8 @@ class PineconeService {
       const chatHistoryRephrase = chatHistory;
       for (const chat of chatHistory) {
         chatHistoryLangchain.push(
-          new HumanMessage(chat.question),
-          new AIMessage(chat.answer)
+          new HumanMessage(chat.query),
+          new AIMessage(chat.response)
         );
       }
       console.log("Chat history Langchain", chatHistoryLangchain);
