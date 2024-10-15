@@ -564,7 +564,12 @@ class PineconeService {
         chatHistory = [];
       }
       const chatHistoryLangchain = [];
+      chatHistory = chatHistory.map((chat) => ({
+        question: chat.query,
+        answer: chat.response,
+      }));
       const chatHistoryRephrase = chatHistory;
+      console.log("🚀 ~ PineconeService ~ askQna ~ chatHistoryRephrase:", chatHistoryRephrase)
       for (const chat of chatHistory) {
         chatHistoryLangchain.push(
           new HumanMessage(chat.question),
