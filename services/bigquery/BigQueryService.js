@@ -11,6 +11,8 @@ const {
   MessagesPlaceholder,
 } = require("@langchain/core/prompts");
 
+// Access your API key as an environment variable
+// const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const __constants = require("../../config/constants");
 const { compile } = require("html-to-text");
 const { v4: uuidv4 } = require("uuid");
@@ -26,8 +28,9 @@ const bigquery = new BigQuery({
 const aiplatform = require("@google-cloud/aiplatform");
 const { PredictionServiceClient } = aiplatform.v1;
 const { helpers } = aiplatform;
-const clientOptions = { apiEndpoint: "us-central1-aiplatform.googleapis.com" };
-const location = "us-central1";
+const clientOptions = { apiEndpoint: "asia-south1-aiplatform.googleapis.com" };
+const client = new PredictionServiceClient(clientOptions);
+const location = "asia-south1";
 const endpoint = `projects/${process.env.PROJECT_ID}/locations/${location}/publishers/google/models/text-embedding-004`;
 const parameters = helpers.toValue({
   outputDimensionality: 768,
@@ -35,7 +38,7 @@ const parameters = helpers.toValue({
 const { BufferMemory, ChatMessageHistory } = require("langchain/memory");
 const { HumanMessage, AIMessage } = require("@langchain/core/messages");
 const { ConversationChain } = require("langchain/chains");
-const BigQueryChatsService = require("../../services/bigquery/chatsFeedbackService");
+const chatsFeedbackService = require("../../services/bigquery/chatsFeedbackService");
 
 const safetySettings = [
   {
@@ -217,7 +220,6 @@ class BigQueryService {
           .map((e) => helpers.toValue({ content: e, taskType: task }));
       }
       const request = { endpoint, instances, parameters };
-      const client = new PredictionServiceClient(clientOptions);
       const [response] = await client.predict(request);
       const predictions = response.predictions;
 
@@ -241,21 +243,24 @@ class BigQueryService {
       "QUESTION_ANSWERING"
     );
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
-    let query = `SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
+    let query = `
+    SELECT base.questions AS question, base.embedding AS embedding, base.feedback AS feedback, distance
     FROM
     VECTOR_SEARCH(
       TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_QUESTIONS_TABLE_ID},
       'embedding',
-        (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_QUESTIONS_TABLE_ID}),
+      (SELECT ${embeddingString} AS embedding),
       top_k => 3,
       distance_type => 'COSINE'
-    )`;
+    )
+    `;
     try {
       let newQuestion = question;
       let newEmbedding = questionEmbedding;
       let feedback = "positive";
+      console.time("getRelevantQuestionsBigQuery")
       const [rows] = await bigquery.query({ query });
-
+      console.timeEnd("getRelevantQuestionsBigQuery")
       for (const row of rows) {
         if (row.feedback === "positive" && row.distance < 0.1) {
           console.log("Found similar question", row.question);
@@ -279,12 +284,12 @@ class BigQueryService {
       throw error;
     }
   }
-
+  
   async getRelevantContextsBigQuery(embedding) {
     const questionEmbedding = embedding;
     const embeddingString = `[${questionEmbedding.join(", ")}]`;
 
-    let query = `SELECT DISTINCT base.context AS context,
+    let query = `SELECT base.context AS context,
     base.source AS source,
     docs.document_link AS document_link,
     docs.document_name AS document_name
@@ -292,7 +297,7 @@ class BigQueryService {
     VECTOR_SEARCH(
       TABLE ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID},
       'embedding',
-        (SELECT ${embeddingString} AS embedding FROM ${process.env.BIG_QUERY_DATA_SET_ID}.${process.env.BIG_QUERY_TABLE_ID}),
+        (SELECT ${embeddingString} AS embedding),
       top_k => 20,
       distance_type => 'COSINE'
     )
@@ -301,7 +306,9 @@ class BigQueryService {
       `;
 
     try {
+      console.time("getRelevantContextsBigQuery")
       const [rows] = await bigquery.query({ query });
+      console.timeEnd("getRelevantContextsBigQuery")
       const contexts = rows.map((row) => row.context);
       const sources = rows.map((row) => ({
         source: row.source,
@@ -319,7 +326,7 @@ class BigQueryService {
     }
   }
 
-  async getPrompt(question, promptBody) {
+  getPrompt(question, promptBody) {
     let prompt = `You are a helpful assistant that answers the given question accurately based on the context provided to you. Make sure you answer the question in as much detail as possible, providing a comprehensive explanation. Do not hallucinate or answer the question by yourself`;
     if (promptBody) {
       console.log("Prompt Body:", promptBody);
@@ -401,7 +408,12 @@ class BigQueryService {
         chatHistory = [];
       }
       const chatHistoryLangchain = [];
+      chatHistory = chatHistory.map((chat) => ({
+        question: chat.query,
+        answer: chat.response,
+      }));
       const chatHistoryRephrase = chatHistory;
+      console.log("🚀 ~ PineconeService ~ askQna ~ chatHistoryRephrase:", chatHistoryRephrase)
       for (const chat of chatHistory) {
         chatHistoryLangchain.push(
           new HumanMessage(chat.question),
@@ -413,22 +425,26 @@ class BigQueryService {
       let finalQuestion = question;
       let decision;
       if (chatHistory && chatHistory.length > 0) {
+        console.time("Chat history decision");
         decision = await this.makeDecisionFromGemini(
           question,
           chatHistoryRephrase
         );
+        console.timeEnd("Chat history decision");
         if (decision.answer == "Yes") {
           finalQuestion = decision.newQuestion;
         }
       }
+      console.time("Get relevant questions entire function");
       const { requestion, embedding, feedback } =
         await this.getRelevantQuestionsBigQuery(finalQuestion);
+      console.timeEnd("Get relevant questions entire function");
       if (feedback === "negative") {
         io.to(sessionId).emit(
           "response",
           "Sorry, I am not able to answer this question"
         );
-        BigQueryChatsService.saveFeedbackBatch({
+        chatsFeedbackService.saveFeedbackBatch({
           id: uuidv4(),
           question: question,
           response: "Sorry, I am not able to answer this question",
@@ -443,11 +459,14 @@ class BigQueryService {
           sources: [],
         };
       }
+      console.time("Get relevant contexts entire function");
       const context = await this.getRelevantContextsBigQuery(embedding);
-      let finalPrompt = await this.getPrompt(requestion, prompt);
+      console.timeEnd("Get relevant contexts entire function");
+      let finalPrompt = this.getPrompt(requestion, prompt);
       let answerStream;
       let sourcesArray;
       if (sessionId) {
+        console.time("Stream answer");
         [answerStream, sourcesArray] = await Promise.all([
           chatHistoryLangchain && chatHistoryLangchain.length > 0
             ? this.streamAnswer(
@@ -465,7 +484,9 @@ class BigQueryService {
               ),
           this.getSources(requestion, context),
         ]);
+        console.timeEnd("Stream answer");
       } else {
+        console.time("Direct answer");
         [answerStream, sourcesArray] = await Promise.all([
           this.directAnswer(
             finalPrompt,
@@ -475,15 +496,22 @@ class BigQueryService {
           ),
           this.getSources(requestion, context),
         ]);
+        console.timeEnd("Direct answer");
       }
+      console.time("Get confidence score");
       const confidenceScore = await this.getConfidenceScore(
         finalQuestion,
         answerStream
       );
+      console.timeEnd("Get confidence score");
       const chatId = uuidv4();
-      const arrayMid =
-        sourcesArray.length > 1 ? Math.floor(sourcesArray.length / 2) : 1;
-      BigQueryChatsService.saveFeedbackBatch({
+      // remove duplicates from sourcesArray based on document_link
+      sourcesArray = sourcesArray.filter(
+        (v, i, a) =>
+          a.findIndex((t) => t.document_link === v.document_link) === i
+      );
+
+      chatsFeedbackService.saveFeedbackBatch({
         id: chatId,
         question: question,
         response: answerStream,
@@ -494,7 +522,7 @@ class BigQueryService {
             sourcesArray[0].source === "") ||
           sourcesArray.length === 0
             ? ["No Response"]
-            : sourcesArray.map((source) => source.source).slice(0, arrayMid),
+            : sourcesArray.map((source) => source.source),
         session_id: sessionId,
         timestamp: new Date().toISOString(),
         read_status: 0,
@@ -530,14 +558,10 @@ class BigQueryService {
           .map((e) => helpers.toValue({ content: e, taskType: task }));
       }
       const request = { endpoint, instances, parameters };
-      const client = new PredictionServiceClient(clientOptions);
+      console.time("Embedding generation")
       const [response] = await client.predict(request);
+      console.timeEnd("Embedding generation")
       const predictions = response.predictions;
-
-      for (const prediction of predictions) {
-        const embeddings = prediction.structValue.fields.embeddings;
-        const values = embeddings.structValue.fields.values.listValue.values;
-      }
       const embeddings = predictions[0].structValue.fields.embeddings;
       const values = embeddings.structValue.fields.values.listValue.values;
       console.log("Embeddings created");
@@ -590,7 +614,6 @@ class BigQueryService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
-
   async streamAnswerWithoutHistory(finalPrompt, context, question, sessionId) {
     console.log("Streaming answer without history");
     const answerStream = await model.stream(
@@ -610,7 +633,6 @@ class BigQueryService {
     console.log("finalResponse", finalResponse);
     return finalResponse;
   }
-
   async directAnswer(finalPrompt, context, question) {
     console.log("Direct Answer");
     const response = await model.invoke(
@@ -620,7 +642,6 @@ class BigQueryService {
     );
     return response.content;
   }
-
   async getSources(question, context) {
     const sourcesmodel = new ChatVertexAI({
       authOptions: {
@@ -687,7 +708,6 @@ class BigQueryService {
 
     return validSources;
   }
-
   async getConfidenceScore(question, answer) {
     try {
       const model = new ChatVertexAI({
@@ -747,6 +767,7 @@ class BigQueryService {
       throw error;
     }
   }
+  
 }
 
 module.exports = new BigQueryService();

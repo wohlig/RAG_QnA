@@ -7,7 +7,6 @@ const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, "keys.json"),
 });
 const { v4: uuidv4 } = require("uuid");
-const KnowledgeBaseService = require("../../services/datastore/knowledgeBaseService.js")
 
 class chatsFeedbackService {
   async saveFeedback(data) {
@@ -274,6 +273,8 @@ class chatsFeedbackService {
       allSources = [...new Set(allSources)]; // Remove duplicates
 
       // Step 2: Get links for all sources in a single call
+      const KnowledgeBaseService = require("../../services/datastore/knowledgeBaseService");
+
       const linksOfSource = await KnowledgeBaseService.getLinksOfSource(
         allSources
       );
