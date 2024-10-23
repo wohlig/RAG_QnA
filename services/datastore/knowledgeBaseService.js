@@ -242,6 +242,7 @@ class knowledgebaseService {
         status: 'Active',
         sourcesArray: sourcesArray
       },
+      types: { sourcesArray: ['STRING'] },
       location: 'asia-south1', // Set to your dataset's location
     };
 
