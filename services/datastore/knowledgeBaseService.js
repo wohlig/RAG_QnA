@@ -358,7 +358,7 @@ class knowledgebaseService {
     const bucket = storage.bucket(bucketName);
 
     // Additional BigQuery table
-    const secondaryTableId = 'ondc_gemini_latest';
+    const secondaryTableId = 'ondc_gemini_prod';
     let array3 = []; // Define array3 here to use in finally block
     try {
       // Step 1: Retrieve rows from BigQuery with the specified condition
