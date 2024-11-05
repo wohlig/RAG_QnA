@@ -137,3 +137,5 @@ public/ossWrapper
 services/pinecone/keys.json
 /vertexkeys.json
 /ondc-key.json
+services/bigquery/keys.json
+services/datastore/keys.json
